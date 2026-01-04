@@ -1,135 +1,29 @@
-"""
-
 import torch
 import pandas as pd
 import numpy as np
-from src.config import *
-from src.model import TransformerModel, DirectionalLoss
-from src.utils import load_scaler
+import json
+import joblib
+import sys
+import os
 
-# Ensure DEVICE is defined if config.py doesn't export it globally
-if 'DEVICE' not in locals():
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Add src to path to ensure imports work
+sys.path.append(os.path.abspath('.'))
 
-def predict_next_day(model, recent_data, device):
-    # Predict the next day's closing price
-    model.eval()
-    with torch.no_grad():
-        # Convert to tensor: (1, seq_len, input_dim)
-        input_tensor = torch.FloatTensor(recent_data).unsqueeze(0).to(device)
-        prediction = model(input_tensor)
-    
-    # Return the scalar value (still scaled 0-1)
-    return prediction.cpu().item()
-
-if __name__ == "__main__":
-    print(f"Using device: {DEVICE}")
-
-    # 1. Load processed data
-    # We need the last SEQ_LEN rows to predict "tomorrow"
-    df = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
-    
-    # 2. Load scalers
-    # We need 'target_scaler' to convert the 0-1 prediction back to $$$
-    try:
-        target_scaler = load_scaler('target_scaler')
-        print("Target scaler loaded.")
-    except Exception as e:
-        print(f"Error loading scaler: {e}")
-        exit()
-
-    # 3. Prepare features
-    # Drop 'Date' and 'Close' because 'Close' is the target (y), not a feature (X)
-    # UNLESS your model uses 'Close' as an input feature (autoregressive).
-    # CHECK: Did you train with 'Close' inside X? 
-    # If yes (common for time series), remove 'Close' from the drop list below.
-    
-    # Assuming 'Close' IS used as an input feature (lagged value):
-    # Replace the dynamic list with this explicit list
-    # inference.py
-
-# REPLACE THIS:
-# feature_cols = ['Open', ..., 'Sentiment_Score', 'Another_Feature', 'One_More']
-
-# WITH SOMETHING LIKE THIS (Check your specific CSV headers):
-
-
-    feature_cols = [
-        'High', 'Low', 'Open', 'Volume', 'sentiment_score', 
-        'MA_5', 'MA_10', 'MA_20', 'MA_50', 'RSI', 
-        'Price_Change', 'Volume_Change', 'Volatility'
-    ]
-
-    input_dim = len(feature_cols)
-    print(f"Input Features: {input_dim}")
-
-    # 4. Load model
-    model = TransformerModel(
-        input_dim=input_dim,
-        d_model=HIDDEN_DIM,
-        nhead=NHEAD,
-        num_layers=NUM_LAYERS,
-        dropout=DROPOUT,
-        output_dim=1 # We predict 1 value (Price)
-    ).to(DEVICE)
-    
-    try:
-        model.load_state_dict(torch.load(f'{MODEL_PATH}best_model.pth', map_location=DEVICE))
-        print("Model loaded successfully")
-    except RuntimeError as e:
-        print(f"Model load error: {e}")
-        print("Check if INPUT_DIM matches the model training (13 vs 5 mismatch?)")
-        exit()
-
-    # 5. Get last SEQ_LEN days
-    # This grabs the last 60 rows of ALL feature columns
-    recent_data = df[feature_cols].values[-SEQ_LEN:]
-    
-    if len(recent_data) < SEQ_LEN:
-        print(f"Error: Not enough data. Need {SEQ_LEN} rows, got {len(recent_data)}")
-        exit()
-
-    # 6. Predict
-    prediction_scaled = predict_next_day(model, recent_data, DEVICE)
-    print(f"Raw Scaled Prediction: {prediction_scaled}")
-
-    # 7. Inverse transform
-    # The scaler expects a 2D array [[value]]
-    prediction_real = target_scaler.inverse_transform([[prediction_scaled]])[0][0]
-    
-    # FIX: Get the last actual close (which is currently scaled 0-1) and unscale it
-    last_actual_scaled = df['Close'].iloc[-1]
-    last_actual_close = target_scaler.inverse_transform([[last_actual_scaled]])[0][0]
-
-    print("-" * 30)
-    print(f"PREDICTION REPORT")
-    print("-" * 30)
-    print(f"Last Actual Close:    ${last_actual_close:.2f}")
-    print(f"Predicted Next Close: ${prediction_real:.2f}")
-    
-    change_pct = ((prediction_real / last_actual_close) - 1) * 100
-    direction = "UP" if change_pct > 0 else "DOWN"
-    
-    print(f"Predicted Move:       {direction} ({change_pct:.2f}%)")
-    print("-" * 30)
-
-"""
-
-import torch
-import pandas as pd
-import numpy as np
 from src.config import *
 from src.model import TransformerModel
-from src.utils import load_scaler
+from src.model import LSTMModel
+# Note: We load scalers via joblib directly for safety, 
+# or you can use your utils.load_scaler if it points to the right path.
 
 # Ensure DEVICE is defined
 if 'DEVICE' not in locals():
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def predict_next_day(model, recent_data, device):
-    """Predict the next day's % return"""
+    """Predict the next day's Close Price (Scaled)"""
     model.eval()
     with torch.no_grad():
+        # Shape: (1, seq_len, input_dim)
         input_tensor = torch.FloatTensor(recent_data).unsqueeze(0).to(device)
         prediction = model(input_tensor)
     return prediction.cpu().item()
@@ -137,76 +31,100 @@ def predict_next_day(model, recent_data, device):
 if __name__ == "__main__":
     print(f"Using device: {DEVICE}")
 
-    # 1. Load processed data
-    df = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
-    
-    # 2. Load scalers
-    # We need 'return_scaler' for the prediction, and 'target_scaler' to get the real price of yesterday
+    # ---------------------------------------------------------
+    # 1. LOAD CONFIGURATION
+    # ---------------------------------------------------------
     try:
-        return_scaler = load_scaler('return_scaler') # The new one created by train.py
-        price_scaler = load_scaler('target_scaler')  # The original one for prices
-        print("Scalers loaded.")
+        with open(f'{MODEL_PATH}model_config.json', 'r') as f:
+            config_data = json.load(f)
+        feature_cols = config_data['feature_cols']
+        input_dim = config_data['input_dim']
+        print(f"Loaded config. Using {input_dim} features.")
+    except FileNotFoundError:
+        print("Error: model_config.json not found. Run train.py first.")
+        exit()
+
+    # ---------------------------------------------------------
+    # 2. LOAD SCALERS
+    # ---------------------------------------------------------
+    try:
+        feature_scaler = joblib.load(f'{SCALER_PATH}feature_scaler.pkl')
+        target_scaler = joblib.load(f'{SCALER_PATH}target_scaler.pkl')
+        print("Scalers loaded successfully.")
     except Exception as e:
         print(f"Error loading scalers: {e}")
-        print("Did you run the UPDATED train.py? It creates 'return_scaler.pkl'.")
         exit()
 
-    # 3. Prepare features
-    # Ensure this list matches exactly what you trained on (excluding Date/Close)
-    # Based on your previous files, this logic removes Date/Close automatically
-    drop_cols = ['Date', 'Close']
-    feature_cols = [col for col in df.columns if col not in drop_cols]
+    # ---------------------------------------------------------
+    # 3. LOAD & PREPARE DATA
+    # ---------------------------------------------------------
+    # We load the RAW data (because we fixed data_merging.ipynb to save raw)
+    df_raw = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
     
-    input_dim = len(feature_cols)
-    print(f"Input Features: {input_dim}")
+    # Get the last SEQ_LEN rows for prediction
+    # We take a slightly larger slice to ensure we have enough, then tail it
+    df_recent = df_raw.tail(SEQ_LEN).copy()
 
-    # 4. Load model
-    model = TransformerModel(
+    if len(df_recent) < SEQ_LEN:
+        print(f"Error: Not enough data. Need {SEQ_LEN} rows, got {len(df_recent)}")
+        exit()
+
+    # Capture the REAL last close price (before scaling) for reporting
+    last_actual_close = df_recent['Close'].iloc[-1]
+
+    # SCALE THE FEATURES
+    # IMPORTANT: We use transform(), NOT fit()
+    try:
+        df_recent[feature_cols] = feature_scaler.transform(df_recent[feature_cols])
+    except KeyError as e:
+        print(f"Column mismatch error: {e}")
+        print("Ensure feature_cols in config match columns in csv.")
+        exit()
+
+    # Convert to numpy array for the model
+    recent_data = df_recent[feature_cols].values
+
+    # ---------------------------------------------------------
+    # 4. LOAD MODEL
+    # ---------------------------------------------------------
+    model = LSTMModel(
         input_dim=input_dim,
-        d_model=HIDDEN_DIM,
-        nhead=NHEAD,
+        hidden_dim=HIDDEN_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
-        output_dim=1 
+        output_dim=1
     ).to(DEVICE)
-    
+
     try:
         model.load_state_dict(torch.load(f'{MODEL_PATH}best_model.pth', map_location=DEVICE))
-        print("Model loaded successfully")
-    except RuntimeError as e:
-        print(f"Model load error: {e}")
+        print("Model weights loaded.")
+    except Exception as e:
+        print(f"Error loading model: {e}")
         exit()
 
-    # 5. Get last SEQ_LEN days
-    recent_data = df[feature_cols].values[-SEQ_LEN:]
-    
-    if len(recent_data) < SEQ_LEN:
-        print(f"Error: Not enough data. Need {SEQ_LEN} rows, got {len(recent_data)}")
-        exit()
-
-    # 6. Predict (Output is Scaled Return)
+    # ---------------------------------------------------------
+    # 5. PREDICT
+    # ---------------------------------------------------------
+    # The model outputs a Scaled Price (0-1)
     prediction_scaled = predict_next_day(model, recent_data, DEVICE)
-    print(f"Raw Scaled Prediction (Return): {prediction_scaled}")
+    print(f"Raw Scaled Prediction: {prediction_scaled:.4f}")
 
-    # 7. Inverse transform to get Real Percentage Return
-    # The scaler expects [[value]]
-    predicted_return_pct = return_scaler.inverse_transform([[prediction_scaled]])[0][0]
-    
-    # 8. Calculate Price
-    # Get last actual close price (Unscale it first)
-    last_actual_scaled = df['Close'].iloc[-1]
-    last_actual_close = price_scaler.inverse_transform([[last_actual_scaled]])[0][0]
-    
-    # Apply return
-    predicted_price = last_actual_close * (1 + predicted_return_pct)
-    
+    # ---------------------------------------------------------
+    # 6. INVERSE TRANSFORM
+    # ---------------------------------------------------------
+    # Convert scaled price back to dollars
+    # scaler expects shape (n_samples, n_features), so we pass [[value]]
+    predicted_price = target_scaler.inverse_transform([[prediction_scaled]])[0][0]
+
+    # Calculate metrics
+    change_dollar = predicted_price - last_actual_close
+    change_pct = (change_dollar / last_actual_close) * 100
+    direction = "UP" if change_pct > 0 else "DOWN"
+
     print("-" * 30)
-    print(f"PREDICTION REPORT (BOLD STRATEGY)")
+    print(f"PREDICTION REPORT")
     print("-" * 30)
     print(f"Last Actual Close:    ${last_actual_close:.2f}")
-    print(f"Predicted Return:     {predicted_return_pct*100:.4f}%")
     print(f"Predicted Next Close: ${predicted_price:.2f}")
-    
-    direction = "UP" if predicted_return_pct > 0 else "DOWN"
-    print(f"Predicted Move:       {direction}")
+    print(f"Predicted Move:       {direction} ({change_pct:+.2f}%)")
     print("-" * 30)

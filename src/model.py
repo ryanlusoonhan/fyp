@@ -71,6 +71,7 @@ class TransformerModel(nn.Module):
         x = x[:, -1, :]
         x = self.fc(x)
         return x
+    
 
 class LSTMModel(nn.Module):
     """

@@ -25,7 +25,7 @@ VAL_SPLIT = 0.1      # 10% validation data
 # MODEL PARAMETERS
 # -------------------
 BATCH_SIZE = 32      # Larger batch size = faster training on GPU
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 NUM_EPOCHS = 100
 HIDDEN_DIM = 128
 NUM_LAYERS = 3

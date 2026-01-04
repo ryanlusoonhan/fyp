@@ -2,9 +2,17 @@ import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import joblib
+import json
+import sys
+import os
+
+# Add src to path
+sys.path.append(os.path.abspath('.'))
+
 from src.config import *
 from src.model import TransformerModel
-from src.utils import load_scaler
+from src.model import LSTMModel
 
 # Ensure DEVICE is defined
 if 'DEVICE' not in locals():
@@ -13,51 +21,71 @@ if 'DEVICE' not in locals():
 def backtest_model(days_to_test=50):
     print(f"Starting Backtest on {DEVICE} for last {days_to_test} days...")
 
-    # 1. Load Data
-    df = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
+    # 1. Load Config & Raw Data
+    try:
+        with open(f'{MODEL_PATH}model_config.json', 'r') as f:
+            config_data = json.load(f)
+        feature_cols = config_data['feature_cols']
+        input_dim = config_data['input_dim']
+    except FileNotFoundError:
+        print("Error: model_config.json not found.")
+        return
+
+    # Load RAW data (unscaled)
+    df_raw = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
     
     # 2. Load Scalers
     try:
-        return_scaler = load_scaler('return_scaler')
-        price_scaler = load_scaler('target_scaler')
+        feature_scaler = joblib.load(f'{SCALER_PATH}feature_scaler.pkl')
+        target_scaler = joblib.load(f'{SCALER_PATH}target_scaler.pkl')
     except Exception as e:
         print(f"Error loading scalers: {e}")
         return
 
-    # 3. Prepare Features (Exact same logic as inference.py)
-    drop_cols = ['Date', 'Close']
-    feature_cols = [col for col in df.columns if col not in drop_cols]
+    # 3. Prepare Data for Backtesting
+    # We need a copy of the dataframe to scale features for input
+    df_scaled = df_raw.copy()
     
-    # We need the RAW close prices for calculating actual returns and errors
-    # (Assuming 'Close' in CSV is scaled, we need to unscale it to get real $)
-    scaled_close_prices = df['Close'].values.reshape(-1, 1)
-    real_close_prices = price_scaler.inverse_transform(scaled_close_prices).flatten()
+    # Scale features using the training scaler (transform only!)
+    df_scaled[feature_cols] = feature_scaler.transform(df_scaled[feature_cols])
     
-    # Features for the model
-    all_features = df[feature_cols].values
+    # Get arrays
+    # Input features (Scaled)
+    all_features_scaled = df_scaled[feature_cols].values
+    
+    # Actual Target Prices (Raw/Unscaled) for comparison
+    real_close_prices = df_raw['Close'].values
 
     # 4. Load Model
-    input_dim = len(feature_cols)
-    model = TransformerModel(
+    model = LSTMModel(
         input_dim=input_dim,
-        d_model=HIDDEN_DIM,
-        nhead=NHEAD,
+        hidden_dim=HIDDEN_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
         output_dim=1
     ).to(DEVICE)
     
-    model.load_state_dict(torch.load(f'{MODEL_PATH}best_model.pth', map_location=DEVICE))
+    try:
+        model.load_state_dict(torch.load(f'{MODEL_PATH}best_model.pth', map_location=DEVICE))
+        print("Model loaded successfully.")
+    except Exception as e:
+        print(f"Model load error: {e}")
+        return
+
     model.eval()
 
     # 5. Backtest Loop
     predictions = []
     actuals = []
     
-    # We start 'days_to_test' days ago. 
-    # For each day 'i', we look at the window [i-SEQ_LEN : i] to predict i+1
-    start_index = len(df) - days_to_test
+    # Start index: We need enough history for the first prediction window
+    total_len = len(df_raw)
+    start_index = total_len - days_to_test
     
+    if start_index < SEQ_LEN:
+        print(f"Error: Not enough data for {days_to_test} days backtest.")
+        return
+
     print(f"{'Day':<10} {'Actual':<10} {'Predicted':<10} {'Diff %':<10} {'Direction'}")
     print("-" * 55)
 
@@ -65,47 +93,49 @@ def backtest_model(days_to_test=50):
 
     with torch.no_grad():
         for i in range(days_to_test):
+            # We want to predict the price at 'current_idx'
             current_idx = start_index + i
             
-            # Data available BEFORE today (window of size SEQ_LEN)
-            # We want to predict the close price at 'current_idx'
-            # So we use data from [current_idx - SEQ_LEN : current_idx]
+            # The input window is the SEQ_LEN days BEFORE current_idx
+            # Range: [current_idx - SEQ_LEN : current_idx]
+            input_window = all_features_scaled[current_idx - SEQ_LEN : current_idx]
             
-            input_window = all_features[current_idx - SEQ_LEN : current_idx]
-            
-            # Check if we have enough data
+            # Sanity check
             if len(input_window) != SEQ_LEN:
-                print(f"Skipping index {current_idx}: insufficient history")
                 continue
 
             # PREDICT
             input_tensor = torch.FloatTensor(input_window).unsqueeze(0).to(DEVICE)
-            pred_scaled_return = model(input_tensor).cpu().item()
             
-            # Unscale the predicted return
-            pred_return = return_scaler.inverse_transform([[pred_scaled_return]])[0][0]
+            # Output is Predicted Return (e.g. 0.015 for +1.5%)
+            # No inverse_transform needed if we didn't scale the target in train.py
+            pred_return = model(input_tensor).cpu().item()
             
-            # Calculate Predicted Price
-            # Previous day's actual close (real $)
-            prev_close = real_close_prices[current_idx - 1]
-            pred_price = prev_close * (1 + pred_return)
+            # RECONSTRUCT PRICE
+            # Price_Tomorrow = Price_Today * (1 + Pred_Return)
+            # We need the UN-SCALED previous close price (Yesterday's close)
+            prev_price = real_close_prices[current_idx - 1]
             
-            # Actual Price for this day
+            pred_price = prev_price * (1 + pred_return)
+            
+            # Actual Price (Real $)
             actual_price = real_close_prices[current_idx]
             
             # Metrics
             diff_pct = ((pred_price - actual_price) / actual_price) * 100
             
             # Direction Accuracy
-            actual_move = actual_price - prev_close
-            pred_move = pred_price - prev_close
+            actual_move = actual_price - prev_price
+            pred_move = pred_price - prev_price
             
+            # Check if signs match (Up/Up or Down/Down)
             direction_match = (actual_move > 0 and pred_move > 0) or (actual_move < 0 and pred_move < 0)
+            
             if direction_match:
                 correct_direction_count += 1
-                dir_str = "correct"
+                dir_str = "MATCH"
             else:
-                dir_str = "incorrect"
+                dir_str = "WRONG"
 
             predictions.append(pred_price)
             actuals.append(actual_price)
