@@ -1,1 +1,1 @@
-{"feature_cols": ["sentiment_score", "Log_Ret", "Volatility_20", "Rel_Volume", "RSI", "Dist_MA50", "High_Low_Pct"], "input_dim": 7}
+{"feature_cols": ["sentiment_score", "Sentiment_MA7", "Sentiment_Momentum", "Future_Close", "Future_Return", "Target_Class"], "input_dim": 6}

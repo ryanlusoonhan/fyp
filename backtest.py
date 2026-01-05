@@ -2,225 +2,162 @@ import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import json
-import joblib
-import os
-from tqdm import tqdm
-
-# Import project modules
 from src.config import *
-from src.model import LSTMModel, TransformerModel
+from src.model import LSTMModel
+from src.utils import create_sequences
+import os
 
-def load_model_artifacts(device):
-    """Loads the trained model, scaler, and configuration."""
-    print("Loading model artifacts...")
+def backtest():
+    # 1. SETUP
+    print("Loading data for backtest...")
+    df = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
     
-    # 1. Load Config
-    config_path = f'{MODEL_PATH}model_config.json'
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Config not found at {config_path}. Run train.py first.")
-        
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-        
-    feature_cols = config['feature_cols']
-    input_dim = config['input_dim']
+    # Re-create features exactly like train.py
+    drop_cols = ['Date', 'Close', 'Target', 'Return', 'Open', 'High', 'Low', 'Volume']
+    feature_cols = [col for col in df.columns if col not in drop_cols]
     
-    # 2. Load Scaler
-    scaler_path = f'{SCALER_PATH}feature_scaler.pkl'
-    if not os.path.exists(scaler_path):
-        raise FileNotFoundError(f"Scaler not found at {scaler_path}.")
-    scaler = joblib.load(scaler_path)
+    # 2. SCALING (Must load the exact scaler used in training)
+    import joblib
+    scaler = joblib.load(f'{SCALER_PATH}feature_scaler.pkl')
     
-    # 3. Load Model
-    # IMPORTANT: Initialize the same model class used in training
-    model = LSTMModel(input_dim=input_dim).to(device)
+    # Scale ALL data (we will slice out validation later)
+    # Note: We suppress the warning because we know we are applying it globally
+    # but the scaler was only FIT on train data.
+    df_scaled = df.copy()
+    df_scaled[feature_cols] = scaler.transform(df[feature_cols])
     
-    model_path = f'{MODEL_PATH}best_model.pth'
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model not found at {model_path}.")
-        
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    features = df_scaled[feature_cols].values
+    
+    # We need the ACTUAL returns to calculate PnL (Profit and Loss)
+    # Recalculate Return shifted to match the Target logic
+    # If Target[i] is High, it means Return[i] was positive.
+    # We need the Return of the day we are predicting.
+    
+    # Calculate Next Day Return (Shift -1)
+    # This aligns with the target: Target is result of Day T -> T+1
+    next_day_returns = df['Close'].pct_change().shift(-1).fillna(0).values
+    
+    # 3. CREATE SEQUENCES
+    # We pass dummy targets because we don't need them for X generation
+    dummy_targets = np.zeros(len(features))
+    X, _ = create_sequences(features, dummy_targets, SEQ_LEN)
+    
+    # 4. ALIGN RETURNS WITH SEQUENCES
+    # If X[i] is days 0..29, the prediction is for the return at index 30?
+    # In train.py: y.append(targets[i + seq_len])
+    # So we need returns[i + seq_len]
+    aligned_returns = []
+    for i in range(len(features) - SEQ_LEN):
+        aligned_returns.append(next_day_returns[i + SEQ_LEN])
+    aligned_returns = np.array(aligned_returns)
+    
+    # 5. SPLIT TO VALIDATION ONLY
+    total_seqs = len(X)
+    train_seq_end = int(total_seqs * TRAIN_SPLIT)
+    
+    X_val = X[train_seq_end:]
+    returns_val = aligned_returns[train_seq_end:]
+    
+    print(f"Backtesting on {len(X_val)} days of unseen data...")
+    
+    # 6. LOAD MODEL
+    model = LSTMModel(
+        input_dim=len(feature_cols),
+        hidden_dim=HIDDEN_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        output_dim=1
+    ).to(DEVICE)
+    
+    model.load_state_dict(torch.load(f'{MODEL_PATH}best_model.pth'))
     model.eval()
     
-    return model, scaler, feature_cols
-
-def run_backtest(days=90, threshold=0.5):
-    """
-    Runs a rolling window backtest.
-    
-    Args:
-        days (int): Number of trading days to backtest.
-        threshold (float): Probability threshold for buying (default 0.5).
-    """
-    
-    # Setup Device
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-        
-    print(f"Running backtest on {device} for last {days} days...")
-
-    # 1. Load Data
-    # We load the raw processed data to get prices
-    df = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
-    df['Date'] = pd.to_datetime(df['Date'])
-    
-    # 2. Load Artifacts
-    model, scaler, feature_cols = load_model_artifacts(device)
-    
-    # 3. Data Preparation
-    # We need: lookback (SEQ_LEN) + test period (days) + 1 (for tomorrow's target)
-    required_len = SEQ_LEN + days + 1
-    
-    if len(df) < required_len:
-        print(f"Warning: Dataset length ({len(df)}) is shorter than requested backtest ({required_len}). Using full available test set.")
-        subset = df.copy()
-    else:
-        # Take the tail of the dataframe
-        subset = df.iloc[-required_len:].reset_index(drop=True)
-
-    # Scale features ONCE using the pre-fitted scaler
-    # (We are not fitting here, so no leakage)
-    subset_scaled = subset.copy()
-    subset_scaled[feature_cols] = scaler.transform(subset[feature_cols])
-    
-    # Convert features to numpy for fast indexing
-    feature_data = subset_scaled[feature_cols].values
-    close_prices = subset['Close'].values
-    dates = subset['Date'].values
-
-    results = []
-
-    # 4. Rolling Prediction Loop
-    # We iterate such that 'i' is the index of "Today".
-    # We use window [i-SEQ_LEN+1 : i+1] (inclusive of i) to predict return at i+1
-    
-    # Start index: We need SEQ_LEN data points ending at 'i'. 
-    # So i must be at least SEQ_LEN - 1.
-    start_idx = SEQ_LEN - 1
-    # End index: We stop at len() - 2, because we need i+1 to exist to calculate return.
-    end_idx = len(subset) - 2
-
-    print("Executing rolling predictions...")
-    for i in tqdm(range(start_idx, end_idx + 1)):
-        
-        # --- A. Prepare Input (Window ending at Day i) ---
-        # Slicing: [start : end] -> Python excludes end, so we use i+1
-        seq_start = i - SEQ_LEN + 1
-        seq_end = i + 1
-        
-        sequence = feature_data[seq_start:seq_end] # Shape: (SEQ_LEN, n_features)
-        
-        # Convert to tensor
-        seq_tensor = torch.FloatTensor(sequence).unsqueeze(0).to(device)
-        
-        # --- B. Inference ---
-        with torch.no_grad():
-            output = model(seq_tensor)
-            prob = torch.sigmoid(output).item()
+    # 7. RUN PREDICTION
+    predictions = []
+    with torch.no_grad():
+        # Process in batches to avoid OOM
+        batch_size = 256
+        for i in range(0, len(X_val), batch_size):
+            batch_X = torch.tensor(X_val[i:i+batch_size]).float().to(DEVICE)
+            outputs = model(batch_X)
+            probs = torch.sigmoid(outputs).cpu().numpy().flatten()
+            predictions.extend(probs)
             
-        # Strategy Signal
-        pred_signal = 1 if prob > threshold else 0
+    predictions = np.array(predictions)
+    
+    # 8. SIMULATE TRADING
+    initial_balance = 10000
+    balance = initial_balance
+    equity_curve = [initial_balance]
+    
+    # Strategy Parameters
+    BUY_THRESHOLD = 0.55  # Only buy if model is 55% confident
+    # Transaction cost (e.g., 0.1% per trade)
+    COST = 0.001 
+    
+    holdings = 0 # 0 = Cash, 1 = Invested
+    
+    print("\n--- SIMULATION RESULTS ---")
+    
+    for i in range(len(predictions)):
+        prob = predictions[i]
+        actual_ret = returns_val[i]
         
-        # --- C. Calculate Forward Outcome ---
-        # We are at Day i. We trade at Close of Day i (or Open of i+1).
-        # We hold until Close of Day i+1.
-        price_today = close_prices[i]
-        price_tomorrow = close_prices[i+1]
-        date_tomorrow = dates[i+1]
+        # LOGIC:
+        # If Prob > Threshold, we go LONG (Buy) for the next day
+        # If Prob < 0.5, we stay in CASH (Sell/Hold Cash)
         
-        # Actual Return for holding 1 day
-        actual_return = (price_tomorrow - price_today) / price_today
-        
-        # Determine strict target (did it go up?)
-        true_target = 1 if actual_return > 0 else 0
-        
-        results.append({
-            'Date': date_tomorrow,
-            'Price_In': price_today,
-            'Price_Out': price_tomorrow,
-            'Probability': prob,
-            'Signal': pred_signal,
-            'Actual_Return': actual_return,
-            'Target': true_target
-        })
+        if prob > BUY_THRESHOLD:
+            # We are invested for this day
+            # PnL = Balance * Return - Transaction Cost
+            # We apply cost only if we weren't already holding (simplified)
+            
+            trade_cost = 0
+            if holdings == 0:
+                trade_cost = COST # Cost to enter
+                holdings = 1
+                
+            # Update balance
+            profit = balance * actual_ret
+            balance = balance + profit - (balance * trade_cost)
+            
+        else:
+            # We are in cash
+            if holdings == 1:
+                # Cost to exit
+                balance = balance - (balance * COST)
+                holdings = 0
+                
+        equity_curve.append(balance)
 
-    # 5. Analysis & Metrics
-    results_df = pd.DataFrame(results)
-    
-    # Calculate Strategy Return
-    # If Signal=1, we get Actual_Return. If Signal=0, we get 0 (Cash).
-    # (Optional: Subtract transaction costs here, e.g., -0.001 for 0.1% fee)
-    results_df['Strategy_Return'] = results_df['Signal'] * results_df['Actual_Return']
-    
-    # Cumulative Returns
-    results_df['Cum_Market'] = (1 + results_df['Actual_Return']).cumprod()
-    results_df['Cum_Strategy'] = (1 + results_df['Strategy_Return']).cumprod()
-    
-    # Key Metrics
-    total_trades = results_df['Signal'].sum()
-    accuracy = (results_df['Signal'] == results_df['Target']).mean()
-    
-    # Precision: When we bought, were we right?
-    buys = results_df[results_df['Signal'] == 1]
-    precision = (buys['Actual_Return'] > 0).mean() if len(buys) > 0 else 0
-    
-    market_ret = results_df['Cum_Market'].iloc[-1] - 1
-    strategy_ret = results_df['Cum_Strategy'].iloc[-1] - 1
-    
-    print("\n" + "="*40)
-    print(f"BACKTEST RESULTS ({len(results_df)} Days)")
-    print("="*40)
-    print(f"Total Trades: {int(total_trades)}")
-    print(f"Accuracy (Direction): {accuracy:.2%}")
-    print(f"Precision (Win Rate): {precision:.2%}")
-    print(f"Market Return: {market_ret:.2%}")
-    print(f"Strategy Return: {strategy_ret:.2%}")
-    print(f"Outperformance: {strategy_ret - market_ret:.2%}")
-    print("="*40)
-    
-    # Debugging Confidence
-    print("\nModel Probability Stats:")
-    print(results_df['Probability'].describe())
-    
-    # 6. Plotting
+    # 9. PLOT
     plt.figure(figsize=(12, 6))
     
-    plt.plot(results_df['Date'], results_df['Cum_Market'], 
-             label='Market (Buy & Hold)', color='gray', linestyle='--', alpha=0.6)
+    # Create Buy & Hold Benchmark for comparison
+    # Cumulative sum of log returns is safest, but for simple comparison:
+    # We just track the asset price movement over the same period
+    benchmark_returns = returns_val
+    benchmark_curve = [initial_balance]
+    ben_bal = initial_balance
+    for r in benchmark_returns:
+        ben_bal = ben_bal * (1 + r)
+        benchmark_curve.append(ben_bal)
+        
+    plt.plot(equity_curve, label='AI Model Strategy', color='green')
+    plt.plot(benchmark_curve, label='Buy & Hold Benchmark', color='gray', linestyle='--')
     
-    plt.plot(results_df['Date'], results_df['Cum_Strategy'], 
-             label='Strategy (AI)', color='blue', linewidth=2)
-    
-    # Highlight winning trades
-    wins = results_df[(results_df['Signal'] == 1) & (results_df['Actual_Return'] > 0)]
-    plt.scatter(wins['Date'], wins['Cum_Strategy'], marker='^', color='green', alpha=0.6, s=30)
-    
-    # Highlight losing trades
-    losses = results_df[(results_df['Signal'] == 1) & (results_df['Actual_Return'] <= 0)]
-    plt.scatter(losses['Date'], losses['Cum_Strategy'], marker='v', color='red', alpha=0.6, s=30)
-    
-    plt.title(f'Backtest: AI vs Market (Last {len(results_df)} Days)')
-    plt.xlabel('Date')
-    plt.ylabel('Cumulative Return (1.0 = Breakeven)')
+    plt.title(f'Backtest: AI vs Buy & Hold\nInitial: ${initial_balance} -> Final: ${balance:.2f}')
+    plt.xlabel('Days')
+    plt.ylabel('Portfolio Value ($)')
     plt.legend()
-    plt.grid(True, alpha=0.3)
+    plt.grid(True)
+    plt.savefig(f'{MODEL_PATH}backtest_result.png')
     
-    save_path = f'{MODEL_PATH}backtest_verified.png'
-    plt.savefig(save_path)
-    print(f"\nChart saved to {save_path}")
-    
-    # Save CSV for detailed inspection
-    results_df.to_csv(f'{MODEL_PATH}backtest_detailed.csv', index=False)
-    
-    return results_df
+    # Stats
+    total_return = (balance - initial_balance) / initial_balance * 100
+    print(f"Final Balance: ${balance:.2f}")
+    print(f"Total Return: {total_return:.2f}%")
+    print(f"Chart saved to {MODEL_PATH}backtest_result.png")
 
 if __name__ == "__main__":
-    try:
-        run_backtest(days=100, threshold=0.5)
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    backtest()
