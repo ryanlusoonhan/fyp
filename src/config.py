@@ -17,19 +17,19 @@ else:
 # -------------------
 # DATA PARAMETERS
 # -------------------
-SEQ_LEN = 60         # Lookback window
+SEQ_LEN = 30         # Lookback window
 TRAIN_SPLIT = 0.8    # 80% training data
 VAL_SPLIT = 0.1      # 10% validation data
 
 # -------------------
 # MODEL PARAMETERS
 # -------------------
-BATCH_SIZE = 32      # Larger batch size = faster training on GPU
-LEARNING_RATE = 0.0001
+BATCH_SIZE = 128      # Larger batch size = faster training on GPU
+LEARNING_RATE = 0.001
 NUM_EPOCHS = 100
 HIDDEN_DIM = 128
-NUM_LAYERS = 3
-DROPOUT = 0.2
+NUM_LAYERS = 1
+DROPOUT = 0.3
 NHEAD = 8            # Attention heads (Transformer only)
 
 # -------------------

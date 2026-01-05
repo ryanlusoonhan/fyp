@@ -18,73 +18,93 @@ from src.model import TransformerModel, DirectionalLoss
 from src.utils import plot_training_loss, create_sequences, load_scaler
 
 def train_model(model, train_loader, val_loader, num_epochs, device):
-    criterion = DirectionalLoss(alpha=10.0)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    # Reduced patience to 3 to adapt faster
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', patience=3, factor=0.5
-    )
+    # Calculate ratio of UP days in training data
+    num_pos = (y_train == 1).sum().item()
+    num_neg = (y_train == 0).sum().item()
+    pos_weight = torch.tensor([num_neg / num_pos]).to(device)
+
+    print(f"Positive Weight: {pos_weight.item():.2f}")
+
+    # --- CHANGE: LOSS FUNCTION ---
+    # BCEWithLogitsLoss combines Sigmoid + BCELoss for stability
+    criterion = nn.CrossEntropyLoss() 
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
 
     train_losses = []
     val_losses = []
     best_val_loss = float('inf')
-    patience_counter = 0
 
-    print(f"Starting training on {device}...")
+    print(f"Starting classification training on {device}...")
 
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
+        correct_train = 0
+        total_train = 0
+
         loop = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
 
         for sequences, targets in loop:
             sequences = sequences.float().to(device)
-            targets = targets.float().to(device)
-
+            # CRITICAL: Ensure targets are (batch, 1) to match model output
+            targets = targets.long().to(device)
+            
             optimizer.zero_grad()
-            outputs = model(sequences)
+            outputs = model(sequences) # Shape: [Batch, 3]
             loss = criterion(outputs, targets)
             loss.backward()
-            
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
-            loop.set_postfix(loss=loss.item())
+
+            # --- CALCULATE ACCURACY ---
+            # Apply sigmoid to get probability 0-1
+            probs = torch.sigmoid(outputs)
+            predicted = torch.max(outputs.data, 1)
+            correct_train += (predicted == targets).sum().item()
+            total_train += targets.size(0)
+
+            loop.set_postfix(loss=loss.item(), acc=correct_train/total_train)
 
         avg_train_loss = train_loss / len(train_loader)
+        train_acc = correct_train / total_train
         train_losses.append(avg_train_loss)
 
+        # Validation
         model.eval()
         val_loss = 0.0
+        correct_val = 0
+        total_val = 0
+
         with torch.no_grad():
             for sequences, targets in val_loader:
                 sequences = sequences.float().to(device)
-                targets = targets.float().to(device)
+                targets = targets.float().unsqueeze(1).to(device)
 
                 outputs = model(sequences)
                 loss = criterion(outputs, targets)
                 val_loss += loss.item()
 
+                probs = torch.sigmoid(outputs)
+                predicted = (probs > 0.5).float()
+                correct_val += (predicted == targets).sum().item()
+                total_val += targets.size(0)
+
         avg_val_loss = val_loss / len(val_loader)
+        val_acc = correct_val / total_val
         val_losses.append(avg_val_loss)
-        
+
         scheduler.step(avg_val_loss)
 
-        print(f'Epoch {epoch+1}: Train Loss = {avg_train_loss:.6f}, Val Loss = {avg_val_loss:.6f}')
-
+        print(f'Epoch {epoch+1}: Train Loss={avg_train_loss:.4f} (Acc={train_acc:.2%}) | Val Loss={avg_val_loss:.4f} (Acc={val_acc:.2%})')
+        
+        # Save best model
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            os.makedirs(MODEL_PATH, exist_ok=True)
             torch.save(model.state_dict(), f'{MODEL_PATH}best_model.pth')
-            patience_counter = 0
-            print(" Model saved (New best validation loss)")
-        else:
-            patience_counter += 1
-            if patience_counter >= 15:
-                print(" Early stopping triggered")
-                break
-
+    
     return train_losses, val_losses
 
 if __name__ == "__main__":
@@ -97,7 +117,7 @@ if __name__ == "__main__":
 
     # 2. DEFINE FEATURES
     # Drop 'Target' and 'Return' from features (prevent leakage)
-    drop_cols = ['Date', 'Close', 'Target', 'Return'] 
+    drop_cols = ['Date', 'Close', 'Target', 'Return', 'Open', 'High', 'Low', 'Volume']
     feature_cols = [col for col in df.columns if col not in drop_cols]
     
     # Save Config

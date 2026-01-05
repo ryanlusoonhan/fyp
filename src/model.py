@@ -74,38 +74,22 @@ class TransformerModel(nn.Module):
     
 
 class LSTMModel(nn.Module):
-    """
-    LSTM-based time series prediction model
-    """
-    def __init__(self, input_dim, hidden_dim=128, num_layers=3, 
-                 dropout=0.2, output_dim=1):
+    # Update output_dim default to 3
+    def __init__(self, input_dim, hidden_dim=128, num_layers=2, dropout=0.2, output_dim=3):
         super(LSTMModel, self).__init__()
-        
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        
-        self.lstm = nn.LSTM(
-            input_dim, 
-            hidden_dim, 
-            num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0
-        )
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout)
         
         self.fc = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim)
+            nn.Linear(hidden_dim // 2, output_dim) # Output is now size 3
         )
-    
+
     def forward(self, x):
-        # x shape: (batch_size, seq_len, input_dim)
         lstm_out, _ = self.lstm(x)
-        # Take the last timestep
-        last_out = lstm_out[:, -1, :]
-        output = self.fc(last_out)
-        return output
+        last_out = lstm_out[:, -1, :] 
+        return self.fc(last_out) # Returns raw logits [score_sell, score_hold, score_buy]
 
 class HybridModel(nn.Module):
     """

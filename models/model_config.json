@@ -1,1 +1,1 @@
-{"feature_cols": ["High", "Low", "Open", "Volume", "sentiment_score", "MA_5", "MA_10", "MA_20", "MA_50", "RSI", "Price_Change", "Volume_Change", "Volatility"], "input_dim": 13}
+{"feature_cols": ["sentiment_score", "Log_Ret", "Volatility_20", "Rel_Volume", "RSI", "Dist_MA50", "High_Low_Pct"], "input_dim": 7}
