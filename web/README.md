@@ -1,4 +1,4 @@
-# Nell Signal Terminal (Web MVP)
+# Stock Prediction Interface (Web MVP)
 
 Next.js full-stack product layer for the weekly HSI signal engine.
 

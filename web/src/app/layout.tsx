@@ -1,21 +1,21 @@
 import type { Metadata } from 'next';
-import { JetBrains_Mono, Plus_Jakarta_Sans, Syne } from 'next/font/google';
+import { Barlow_Condensed, IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
 
 import './globals.css';
 
-const sans = Plus_Jakarta_Sans({
+const sans = IBM_Plex_Sans({
   variable: '--font-sans',
   weight: ['400', '500', '600', '700'],
   subsets: ['latin'],
 });
 
-const mono = JetBrains_Mono({
+const mono = IBM_Plex_Mono({
   variable: '--font-mono',
   weight: ['400', '500'],
   subsets: ['latin'],
 });
 
-const display = Syne({
+const display = Barlow_Condensed({
   variable: '--font-display',
   weight: ['500', '600', '700'],
   subsets: ['latin'],
@@ -23,12 +23,12 @@ const display = Syne({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Nell Signal Terminal',
-    template: '%s | Nell Signal Terminal',
+    default: 'Stock Prediction Interface',
+    template: '%s | Stock Prediction Interface',
   },
   description:
-    'High-conviction weekly signal intelligence for HSI traders: clean signal, risk context, and scenario proof.',
-  applicationName: 'Nell Signal Terminal',
+    'Professional weekly signal intelligence with explainability, walk-forward metrics, and scenario analysis.',
+  applicationName: 'Stock Prediction Interface',
   keywords: [
     'HSI',
     'signal intelligence',
@@ -37,9 +37,9 @@ export const metadata: Metadata = {
     'explainable AI signals',
   ],
   openGraph: {
-    title: 'Nell Signal Terminal',
+    title: 'Stock Prediction Interface',
     description:
-      'Signal clarity for HSI: weekly stance, confidence context, and walk-forward proof.',
+      'Weekly stock prediction workflow with signal, confidence context, and validation analytics.',
     type: 'website',
   },
 };

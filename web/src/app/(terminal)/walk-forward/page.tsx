@@ -7,8 +7,8 @@ export default async function WalkForwardPage() {
 
   return (
     <Card>
-      <CardTitle>Walk-Forward</CardTitle>
-      <CardDescription className="mt-1">Window-by-window robustness check.</CardDescription>
+      <CardTitle>Walk-forward validation</CardTitle>
+      <CardDescription className="mt-1">Window-level return comparison for robustness monitoring.</CardDescription>
 
       <div className="mt-5">
         <WalkForwardChart data={windows} />

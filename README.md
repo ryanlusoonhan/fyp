@@ -3,7 +3,7 @@
 Hybrid repository with:
 
 1. **Weekly model pipeline (Python)** in repo root
-2. **Signal Terminal web app (Next.js)** in `web/`
+2. **Stock Prediction Interface web app (Next.js)** in `web/`
 
 ## Quick start
 

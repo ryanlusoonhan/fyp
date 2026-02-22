@@ -14,8 +14,8 @@ export default async function ScenarioLabPage() {
 
   return (
     <Card>
-      <CardTitle>Scenario Lab</CardTitle>
-      <CardDescription className="mt-1">Stress threshold assumptions in seconds.</CardDescription>
+      <CardTitle>Scenario lab</CardTitle>
+      <CardDescription className="mt-1">Threshold sensitivity and objective stress test.</CardDescription>
       <div className="mt-4">
         <ScenarioLabClient initialResult={result} />
       </div>

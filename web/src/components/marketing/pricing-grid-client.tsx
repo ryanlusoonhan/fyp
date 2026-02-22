@@ -46,7 +46,7 @@ export function PricingGridClient() {
               key={option.id}
               type="button"
               onClick={() => setInterval(option.id)}
-              className={`rounded-xl px-4 py-3 text-left transition ${
+              className={`rounded-sm px-4 py-3 text-left transition ${
                 active ? 'bg-accent text-accent-foreground' : 'text-muted hover:bg-panel-strong hover:text-foreground'
               }`}
             >
@@ -75,7 +75,7 @@ export function PricingGridClient() {
             tier.id === 'free' ? (
               <Link
                 href="/dashboard"
-                className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-border bg-panel text-sm font-semibold text-foreground transition hover:border-accent/40 hover:bg-panel-strong"
+                className="inline-flex h-11 w-full items-center justify-center rounded-sm border border-border bg-panel text-sm font-semibold text-foreground transition hover:border-accent/40 hover:bg-panel-strong"
               >
                 Start Free
               </Link>

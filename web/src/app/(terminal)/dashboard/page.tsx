@@ -65,29 +65,29 @@ export default async function DashboardPage() {
 
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
         <Card>
-          <CardTitle>Equity Curve</CardTitle>
-          <CardDescription className="mt-1">AI vs benchmark, compounded by window.</CardDescription>
+          <CardTitle>Equity curve</CardTitle>
+          <CardDescription className="mt-1">Compounded strategy return vs buy-and-hold.</CardDescription>
           <div className="mt-4">
             <EquityCurveChart data={equitySeries} />
           </div>
         </Card>
 
         <Card className="space-y-4">
-          <CardTitle>Quick Notes</CardTitle>
-          <CardDescription>What to watch this week.</CardDescription>
+          <CardTitle>Model monitor</CardTitle>
+          <CardDescription>Operational checks for the current cycle.</CardDescription>
 
           <div className="space-y-3 text-sm text-slate-200">
-            <div className="rounded-xl border border-border bg-panel-strong p-3">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Objective</p>
-              <p className="mt-1 font-semibold">Return</p>
+            <div className="border border-border bg-panel-strong p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Optimization objective</p>
+              <p className="mt-1 font-semibold">Return maximization</p>
             </div>
-            <div className="rounded-xl border border-border bg-panel-strong p-3">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Signal Cadence</p>
-              <p className="mt-1">Weekly stance. Daily refresh.</p>
+            <div className="border border-border bg-panel-strong p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Cadence</p>
+              <p className="mt-1">Weekly decision, daily data refresh.</p>
             </div>
-            <div className="rounded-xl border border-border bg-panel-strong p-3">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Risk Rule</p>
-              <p className="mt-1">Cut conviction when confidence slips.</p>
+            <div className="border border-border bg-panel-strong p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Validation status</p>
+              <p className="mt-1">Walk-forward metrics available and current.</p>
             </div>
           </div>
         </Card>

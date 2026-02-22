@@ -69,13 +69,13 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 rounded-2xl border border-border bg-panel-strong p-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 border border-border bg-panel-strong p-4 md:grid-cols-2 xl:grid-cols-3">
         <label className="space-y-1 text-xs text-muted">
           Objective
           <select
             value={form.objective}
             onChange={(event) => setForm((prev) => ({ ...prev, objective: event.target.value as 'f1' | 'return' }))}
-            className="h-10 w-full rounded-lg border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
+            className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           >
             <option value="return">Return</option>
             <option value="f1">F1</option>
@@ -90,7 +90,7 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
             max="1"
             value={form.thresholdMin}
             onChange={(event) => setForm((prev) => ({ ...prev, thresholdMin: Number(event.target.value) }))}
-            className="h-10 w-full rounded-lg border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
+            className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           />
         </label>
         <label className="space-y-1 text-xs text-muted">
@@ -102,7 +102,7 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
             max="1"
             value={form.thresholdMax}
             onChange={(event) => setForm((prev) => ({ ...prev, thresholdMax: Number(event.target.value) }))}
-            className="h-10 w-full rounded-lg border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
+            className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           />
         </label>
         <label className="space-y-1 text-xs text-muted">
@@ -114,7 +114,7 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
             max="0.2"
             value={form.step}
             onChange={(event) => setForm((prev) => ({ ...prev, step: Number(event.target.value) }))}
-            className="h-10 w-full rounded-lg border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
+            className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           />
         </label>
         <label className="space-y-1 text-xs text-muted">
@@ -126,7 +126,7 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
             max="0.02"
             value={form.cost}
             onChange={(event) => setForm((prev) => ({ ...prev, cost: Number(event.target.value) }))}
-            className="h-10 w-full rounded-lg border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
+            className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           />
         </label>
         <label className="space-y-1 text-xs text-muted">
@@ -138,7 +138,7 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
             max="30"
             value={form.barrierWindow}
             onChange={(event) => setForm((prev) => ({ ...prev, barrierWindow: Number(event.target.value) }))}
-            className="h-10 w-full rounded-lg border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
+            className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           />
         </label>
       </div>
@@ -151,8 +151,8 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
       </div>
 
-      <div className="rounded-2xl border border-border bg-panel-strong p-4">
-        <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Best Threshold</p>
+      <div className="border border-border bg-panel-strong p-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Best threshold</p>
         <p className="mt-1 font-display text-4xl">{result.bestThreshold.toFixed(2)}</p>
         <p className="text-sm text-slate-300">Best score: {result.bestScore.toFixed(4)} ({result.objective})</p>
       </div>

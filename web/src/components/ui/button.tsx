@@ -5,13 +5,12 @@ import type { ButtonHTMLAttributes, ReactElement } from 'react';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center whitespace-nowrap rounded-xl border text-sm font-semibold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
+  'inline-flex items-center justify-center whitespace-nowrap rounded-md border text-sm font-semibold transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
   {
     variants: {
       variant: {
-        primary:
-          'border-transparent bg-[linear-gradient(135deg,#f5a524,#ffbe55)] text-accent-foreground shadow-[0_10px_24px_rgba(245,165,36,0.35)] hover:translate-y-[-1px] hover:shadow-[0_14px_28px_rgba(245,165,36,0.45)]',
-        secondary: 'border-border bg-panel-strong text-foreground hover:border-accent/35 hover:text-accent',
+        primary: 'border-accent/80 bg-accent text-accent-foreground hover:brightness-110',
+        secondary: 'border-border bg-panel-strong text-foreground hover:border-accent/40',
         ghost: 'border-transparent bg-transparent text-muted hover:bg-panel-strong hover:text-foreground',
       },
       size: {

@@ -9,12 +9,12 @@ export default async function ExplainabilityPage() {
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
       <Card>
-        <CardTitle>Driver Stack</CardTitle>
-        <CardDescription className="mt-1">What pushed this signal.</CardDescription>
+        <CardTitle>Driver stack</CardTitle>
+        <CardDescription className="mt-1">Relative contribution of active features.</CardDescription>
 
         <div className="mt-5 space-y-3">
           {explanation.keyDrivers.map((driver) => (
-            <div key={driver.name} className="rounded-xl border border-border bg-panel-strong p-3">
+            <div key={driver.name} className="border border-border bg-panel-strong p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-slate-100">{driver.name}</p>
                 <Badge variant={driver.direction === 'up' ? 'positive' : 'warning'}>
@@ -28,16 +28,16 @@ export default async function ExplainabilityPage() {
       </Card>
 
       <Card className="space-y-4">
-        <CardTitle>Regime + Invalidation</CardTitle>
+        <CardTitle>Regime and invalidation</CardTitle>
         <CardDescription>{explanation.thesisSummary}</CardDescription>
 
-        <div className="rounded-xl border border-border bg-panel-strong p-3 text-sm">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Regime</p>
+        <div className="border border-border bg-panel-strong p-3 text-sm">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Regime</p>
           <p className="mt-1 font-semibold">{explanation.regimeTag}</p>
         </div>
 
         <div>
-          <p className="text-[11px] uppercase tracking-[0.14em] text-muted">Invalidation</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Invalidation triggers</p>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-sm text-slate-200">
             {explanation.invalidationTriggers.map((trigger) => (
               <li key={trigger}>{trigger}</li>

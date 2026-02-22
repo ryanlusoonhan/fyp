@@ -21,7 +21,7 @@ export default function GlobalError({
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-xl border-rose-400/35">
         <p className="text-xs uppercase tracking-[0.12em] text-rose-200">Runtime Exception</p>
-        <CardTitle className="mt-3 text-3xl">Terminal Session Interrupted</CardTitle>
+        <CardTitle className="mt-3 text-3xl">Interface Session Interrupted</CardTitle>
         <CardDescription className="mt-2">
           We hit an unexpected error while rendering this view. You can retry immediately or return to a stable page.
         </CardDescription>

@@ -8,12 +8,12 @@ export default async function SignalsPage() {
 
   return (
     <Card>
-      <CardTitle>Signal History</CardTitle>
-      <CardDescription className="mt-1">Recent 40 weekly decisions.</CardDescription>
+      <CardTitle>Signal history</CardTitle>
+      <CardDescription className="mt-1">Recent 40 weekly outputs from the active model.</CardDescription>
 
-      <div className="mt-5 overflow-hidden rounded-xl border border-border">
+      <div className="mt-5 overflow-x-auto border border-border">
         <table className="w-full text-left text-sm">
-          <thead className="bg-panel-strong text-[11px] uppercase tracking-[0.14em] text-muted">
+          <thead className="bg-panel-strong font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
             <tr>
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Signal</th>
@@ -24,7 +24,7 @@ export default async function SignalsPage() {
           </thead>
           <tbody>
             {history.map((signal) => (
-              <tr key={signal.id} className="border-t border-border/70 bg-panel/30">
+              <tr key={signal.id} className="border-t border-border/70 bg-panel">
                 <td className="px-4 py-3 font-mono text-xs text-slate-300">{signal.asOfDate}</td>
                 <td className="px-4 py-3">
                   <Badge variant={signal.classification === 'BUY' ? 'positive' : 'negative'}>

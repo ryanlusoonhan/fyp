@@ -16,12 +16,12 @@ export function PricingTierCard({ tier, cta, priceOverride }: PricingTierCardPro
     <Card
       className={`flex h-full flex-col gap-4 ${
         tier.highlighted
-          ? 'border-accent/60 bg-[linear-gradient(145deg,rgba(245,165,36,0.18),rgba(18,22,34,0.92)_48%,rgba(111,168,255,0.1))]'
+          ? 'border-accent/60 bg-panel-strong'
           : 'bg-panel'
       }`}
     >
       <div>
-        <p className="text-[11px] uppercase tracking-[0.15em] text-muted">{tier.name}</p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">{tier.name}</p>
         {priceOverride ?? (
           <CardTitle className="mt-2 text-4xl">
             ${tier.priceMonthlyUsd}
@@ -34,7 +34,7 @@ export function PricingTierCard({ tier, cta, priceOverride }: PricingTierCardPro
       <ul className="space-y-2 text-sm text-slate-200">
         {tier.features.map((feature) => (
           <li key={feature} className="flex items-start gap-2">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 text-amber-200" />
+            <CheckCircle2 className="mt-0.5 h-4 w-4 text-accent" />
             <span>{feature}</span>
           </li>
         ))}
