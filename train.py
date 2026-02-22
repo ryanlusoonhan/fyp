@@ -1,44 +1,66 @@
+import json
+import os
+
+import joblib
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
-import pandas as pd
-import numpy as np
 from tqdm import tqdm
-import os
-import joblib
-import matplotlib.pyplot as plt
-import json
 
-# Import project modules
 from src.config import *
 from src.dataset import StockDataset
 from src.model import LSTMModel
-from src.utils import plot_training_loss, create_sequences
+from src.utils import (
+    create_sequences,
+    engineer_features_past_only,
+    plot_training_loss,
+    time_split_with_gap,
+)
 
-def train_model(model, train_loader, val_loader, num_epochs, device, pos_weight_value=1.0):
-    # --- LOSS FUNCTION ---
-    # BCEWithLogitsLoss is best for Binary Classification (0 vs 1)
-    # It includes Sigmoid internally for numerical stability
-    pos_weight = torch.tensor([pos_weight_value]).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+EXCLUDE_COLS = {
+    "Date",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "Target",
+    "Return",
+    "Recalculated_Target",
+    "Target_Class",
+    "Future_Close",
+    "Future_Return",
+}
 
-    # --- OPTIMIZER ---
-    # Added weight_decay=1e-5 for L2 Regularization (Prevents Overfitting)
-    optimizer = torch.optim.Adam(
-        model.parameters(), 
-        lr=LEARNING_RATE, 
-        weight_decay=1e-5 
-    )
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5)
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-    train_losses = []
-    val_losses = []
-    best_val_loss = float('inf')
+
+def compute_class_weights(y: np.ndarray, num_classes: int = 2) -> torch.Tensor:
+    counts = np.bincount(y.astype(np.int64), minlength=num_classes).astype(np.float64)
+    counts[counts == 0] = 1.0
+    weights = counts.sum() / (num_classes * counts)
+    return torch.tensor(weights, dtype=torch.float32)
+
+
+def train_model(model, train_loader, val_loader, num_epochs, device, class_weights):
+    criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=5, factor=0.5)
+
+    train_losses, val_losses = [], []
+    best_val_loss = float("inf")
     patience_counter = 0
-    EARLY_STOP_PATIENCE = 15
+    early_stop_patience = 15
 
-    print(f"Starting binary classification training on {device}...")
+    print(f"Starting directional-classification training on {device}...")
 
     for epoch in range(num_epochs):
         model.train()
@@ -46,39 +68,30 @@ def train_model(model, train_loader, val_loader, num_epochs, device, pos_weight_
         correct_train = 0
         total_train = 0
 
-        loop = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
+        loop = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
 
         for sequences, targets in loop:
-            sequences = sequences.float().to(device)
-            # Reshape targets to [batch_size, 1] and ensure float for BCELoss
-            targets = targets.float().view(-1, 1).to(device)
+            sequences = sequences.to(device)
+            targets = targets.long().to(device)
 
             optimizer.zero_grad()
-            
-            outputs = model(sequences) # Shape: [Batch, 1]
-            loss = criterion(outputs, targets)
-            
+            logits = model(sequences)
+            loss = criterion(logits, targets)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
-
-            # --- CALCULATE ACCURACY (BINARY) ---
-            # Sigmoid > 0.5 means class 1 (Up)
-            probs = torch.sigmoid(outputs)
-            predicted = (probs > 0.5).float()
-            
+            predicted = torch.argmax(logits, dim=1)
             correct_train += (predicted == targets).sum().item()
             total_train += targets.size(0)
 
-            loop.set_postfix(loss=loss.item(), acc=correct_train/total_train)
+            loop.set_postfix(loss=loss.item(), acc=correct_train / max(1, total_train))
 
-        avg_train_loss = train_loss / len(train_loader)
-        train_acc = correct_train / total_train
+        avg_train_loss = train_loss / max(1, len(train_loader))
+        train_acc = correct_train / max(1, total_train)
         train_losses.append(avg_train_loss)
 
-        # --- VALIDATION ---
         model.eval()
         val_loss = 0.0
         correct_val = 0
@@ -86,143 +99,147 @@ def train_model(model, train_loader, val_loader, num_epochs, device, pos_weight_
 
         with torch.no_grad():
             for sequences, targets in val_loader:
-                sequences = sequences.float().to(device)
-                targets = targets.float().view(-1, 1).to(device)
+                sequences = sequences.to(device)
+                targets = targets.long().to(device)
 
-                outputs = model(sequences)
-                loss = criterion(outputs, targets)
+                logits = model(sequences)
+                loss = criterion(logits, targets)
                 val_loss += loss.item()
 
-                probs = torch.sigmoid(outputs)
-                predicted = (probs > 0.5).float()
-                
+                predicted = torch.argmax(logits, dim=1)
                 correct_val += (predicted == targets).sum().item()
                 total_val += targets.size(0)
 
-        avg_val_loss = val_loss / len(val_loader)
-        val_acc = correct_val / total_val
+        avg_val_loss = val_loss / max(1, len(val_loader))
+        val_acc = correct_val / max(1, total_val)
         val_losses.append(avg_val_loss)
-        
+
         scheduler.step(avg_val_loss)
+        print(
+            f"Epoch {epoch + 1}: "
+            f"Train Loss={avg_train_loss:.4f} (Acc={train_acc:.2%}) | "
+            f"Val Loss={avg_val_loss:.4f} (Acc={val_acc:.2%})"
+        )
 
-        print(f'Epoch {epoch+1}: Train Loss={avg_train_loss:.4f} (Acc={train_acc:.2%}) | Val Loss={avg_val_loss:.4f} (Acc={val_acc:.2%})')
-
-        # --- SAVE BEST MODEL & EARLY STOPPING ---
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), f'{MODEL_PATH}best_model.pth')
+            os.makedirs(MODEL_PATH, exist_ok=True)
+            torch.save(model.state_dict(), f"{MODEL_PATH}best_model.pth")
         else:
             patience_counter += 1
-            if patience_counter >= EARLY_STOP_PATIENCE:
-                print(f"Early stopping triggered at Epoch {epoch+1}")
+            if patience_counter >= early_stop_patience:
+                print(f"Early stopping triggered at Epoch {epoch + 1}")
                 break
 
     return train_losses, val_losses
 
+
 if __name__ == "__main__":
+    set_seed(42)
+
+    path = f"{PROCESSED_DATA_PATH}training_data.csv"
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Missing: {path}")
+
     print("Loading processed data...")
-    
-    if not os.path.exists(f'{PROCESSED_DATA_PATH}training_data.csv'):
-        raise FileNotFoundError(f"File not found: {PROCESSED_DATA_PATH}training_data.csv - Run data processing first!")
+    df = pd.read_csv(path)
 
-    # 1. LOAD RAW DATA
-    df = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.sort_values("Date").reset_index(drop=True)
 
-    # 2. DEFINE FEATURES
-    drop_cols = ['Date', 'Close', 'Target', 'Return', 'Open', 'High', 'Low', 'Volume']
-    feature_cols = [col for col in df.columns if col not in drop_cols]
-    
-    # Save Config
-    config_data = {"feature_cols": feature_cols, "input_dim": len(feature_cols)}
-    with open(f'{MODEL_PATH}model_config.json', 'w') as f:
-        json.dump(config_data, f)
+    df = engineer_features_past_only(df, sentiment_window=SENTIMENT_WINDOW)
 
-    # 3. SPLIT INDICES
-    total_len = len(df)
-    train_end = int(total_len * TRAIN_SPLIT)
-    train_indices = range(0, train_end)
-
-    # 4. SCALING
-    from sklearn.preprocessing import StandardScaler
-    feature_scaler = StandardScaler()
-    feature_scaler.fit(df.iloc[train_indices][feature_cols])
-    df[feature_cols] = feature_scaler.transform(df[feature_cols])
-
-    # Save Scaler
-    os.makedirs(SCALER_PATH, exist_ok=True)
-    joblib.dump(feature_scaler, f'{SCALER_PATH}feature_scaler.pkl')
-
-    # 5. CREATE SEQUENCES
-    features = df[feature_cols].values
-    
-    # --- CRITICAL FIX: RECALCULATE TARGETS ---
-    # We recalculate targets from Close price to ensure we don't get all zeros
-    # Shift(-1) compares today's Close with Tomorrow's Close
-    # Target = 1 if Tomorrow > Today, else 0
-    print("Recalculating targets to ensure validity...")
-    df['Recalculated_Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-    
-    # Use fillna(0) for the last row which becomes NaN
-    targets = df['Recalculated_Target'].fillna(0).astype(int).values
-    
-    X, y = create_sequences(features, targets, SEQ_LEN)
-    print(f"Total sequences: {len(X)}")
-
-    # Split sequences
-    total_seqs = len(X)
-    train_seq_end = int(total_seqs * TRAIN_SPLIT)
-    
-    X_train = X[:train_seq_end]
-    y_train = y[:train_seq_end]
-    X_val = X[train_seq_end:]
-    y_val = y[train_seq_end:]
-
-    print(f"Train shape: {X_train.shape}, Val shape: {X_val.shape}")
-
-    # --- DEBUGGING DATA DISTRIBUTION ---
-    num_pos = np.sum(y_train == 1)
-    num_neg = np.sum(y_train == 0)
-    print(f"DEBUG: Training Data -> Positives (1): {num_pos}, Negatives (0): {num_neg}")
-    
-    if num_pos == 0 or num_neg == 0:
-        print("CRITICAL WARNING: Training data is unbalanced (one class missing). Model will fail.")
-        # Fallback to avoid division by zero
-        pos_weight_value = 1.0
+    if "Target" in df.columns:
+        df["Target"] = df["Target"].astype(int)
     else:
-        # Weight positive class to handle imbalance
-        pos_weight_value = num_neg / num_pos
-        print(f"Calculated Positive Weight: {pos_weight_value:.2f}")
+        if "Close" not in df.columns:
+            raise ValueError("'Close' column is required to build directional target.")
+        df["Target"] = (df["Close"].shift(-1) > df["Close"]).astype(int)
+        df = df.iloc[:-1].copy()
 
-    # 6. DATA LOADERS
-    train_dataset = StockDataset(X_train, y_train)
-    val_dataset = StockDataset(X_val, y_val)
+    feature_cols = [c for c in df.columns if c not in EXCLUDE_COLS]
+    if not feature_cols:
+        raise ValueError("No feature columns found after exclusions.")
 
-    use_pin = True if DEVICE.type == 'cuda' else False
-    
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=use_pin)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, pin_memory=use_pin)
-
-    # 7. MODEL SETUP & TRAINING
-    # Explicitly using config parameters to prevent overfitting!
-    model = LSTMModel(
-        input_dim=len(feature_cols),
-        hidden_dim=HIDDEN_DIM,  # From Config (32)
-        num_layers=NUM_LAYERS,  # From Config (1 or 2)
-        dropout=DROPOUT,        # From Config (0.5)
-        output_dim=1            # Binary Classification
-    ).to(DEVICE)
-
-    print(f"Model initialized on {DEVICE} with Hidden={HIDDEN_DIM}, Layers={NUM_LAYERS}, Dropout={DROPOUT}")
-
-    try:
-        train_losses, val_losses = train_model(
-            model, train_loader, val_loader, NUM_EPOCHS, DEVICE, pos_weight_value
+    df_train, df_val = time_split_with_gap(df, train_split=TRAIN_SPLIT, gap=SEQ_LEN)
+    if len(df_train) <= SEQ_LEN or len(df_val) <= SEQ_LEN:
+        raise ValueError(
+            f"Not enough rows after split for seq_len={SEQ_LEN}. "
+            f"train={len(df_train)}, val={len(df_val)}"
         )
 
-        plt = plot_training_loss(train_losses, val_losses)
-        plt.savefig(f'{MODEL_PATH}training_history.png')
-        print(f"Training complete! Chart saved to {MODEL_PATH}training_history.png")
+    scaler = StandardScaler()
+    scaler.fit(df_train[feature_cols].values)
+    os.makedirs(SCALER_PATH, exist_ok=True)
+    joblib.dump(scaler, f"{SCALER_PATH}feature_scaler.pkl")
 
-    except KeyboardInterrupt:
-        print("\nTraining interrupted by user.")
+    train_feat = scaler.transform(df_train[feature_cols].values)
+    val_feat = scaler.transform(df_val[feature_cols].values)
+
+    y_train_raw = df_train["Target"].astype(int).values
+    y_val_raw = df_val["Target"].astype(int).values
+
+    X_train, y_train = create_sequences(train_feat, y_train_raw, SEQ_LEN)
+    X_val, y_val = create_sequences(val_feat, y_val_raw, SEQ_LEN)
+
+    if len(X_train) == 0 or len(X_val) == 0:
+        raise ValueError(
+            "Sequence generation produced an empty split. "
+            f"X_train={X_train.shape}, X_val={X_val.shape}"
+        )
+
+    print(f"Sequences -> X_train: {X_train.shape}, X_val: {X_val.shape}")
+
+    class_weights = compute_class_weights(y_train, num_classes=2)
+    print(f"Class weights: {class_weights.tolist()}")
+
+    os.makedirs(MODEL_PATH, exist_ok=True)
+    with open(f"{MODEL_PATH}model_config.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "task": "directional_classification",
+                "feature_cols": feature_cols,
+                "input_dim": len(feature_cols),
+                "seq_len": SEQ_LEN,
+                "num_classes": 2,
+                "label_map": {"0": "DOWN_OR_FLAT", "1": "UP"},
+            },
+            f,
+        )
+
+    use_pin = DEVICE.type == "cuda"
+    train_loader = DataLoader(
+        StockDataset(X_train, y_train),
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        pin_memory=use_pin,
+    )
+    val_loader = DataLoader(
+        StockDataset(X_val, y_val),
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        pin_memory=use_pin,
+    )
+
+    model = LSTMModel(
+        input_dim=len(feature_cols),
+        hidden_dim=HIDDEN_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        output_dim=2,
+    ).to(DEVICE)
+
+    train_losses, val_losses = train_model(
+        model,
+        train_loader,
+        val_loader,
+        NUM_EPOCHS,
+        DEVICE,
+        class_weights,
+    )
+
+    plt_obj = plot_training_loss(train_losses, val_losses)
+    plt_obj.savefig(f"{MODEL_PATH}training_history.png")
+    print(f"Training complete. Saved to {MODEL_PATH}best_model.pth")

@@ -1,1 +1,1 @@
-{"feature_cols": ["sentiment_score", "Sentiment_MA7", "Sentiment_Momentum", "Future_Close", "Future_Return", "Target_Class"], "input_dim": 6}
+{"task": "directional_classification", "feature_cols": ["sentiment_score", "Sentiment_MA7", "Sentiment_Momentum", "Return_1D", "Volatility_10D"], "input_dim": 5, "seq_len": 30, "num_classes": 2, "label_map": {"0": "DOWN_OR_FLAT", "1": "UP"}}

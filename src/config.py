@@ -1,4 +1,11 @@
 import torch
+import os
+
+
+def _device_log(message: str):
+    quiet = os.getenv("NELL_QUIET_DEVICE", "").lower() in {"1", "true", "yes"}
+    if not quiet:
+        print(message)
 
 # -------------------
 # DEVICE CONFIGURATION
@@ -6,13 +13,13 @@ import torch
 # Check for CUDA (Windows) or MPS (Mac)
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda")
-    print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+    _device_log(f"Using GPU: {torch.cuda.get_device_name(0)}")
 elif torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
-    print("Using Apple Silicon MPS")
+    _device_log("Using Apple Silicon MPS")
 else:
     DEVICE = torch.device("cpu")
-    print("Using CPU")
+    _device_log("Using CPU")
 
 # -------------------
 # DATA PARAMETERS

@@ -1,130 +1,104 @@
-import torch
-import pandas as pd
-import numpy as np
 import json
-import joblib
-import sys
 import os
 
-# Add src to path to ensure imports work
-sys.path.append(os.path.abspath('.'))
+import joblib
+import pandas as pd
+import torch
 
 from src.config import *
-from src.model import TransformerModel
 from src.model import LSTMModel
-# Note: We load scalers via joblib directly for safety, 
-# or you can use your utils.load_scaler if it points to the right path.
 
-# Ensure DEVICE is defined
-if 'DEVICE' not in locals():
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def predict_next_day(model, recent_data, device):
-    """Predict the next day's Close Price (Scaled)"""
+def predict_next_direction(model, recent_data, device):
+    """Return (predicted_class, prob_up) for the next period."""
     model.eval()
     with torch.no_grad():
-        # Shape: (1, seq_len, input_dim)
-        input_tensor = torch.FloatTensor(recent_data).unsqueeze(0).to(device)
-        prediction = model(input_tensor)
-    return prediction.cpu().item()
+        input_tensor = torch.tensor(recent_data, dtype=torch.float32).unsqueeze(0).to(device)
+        logits = model(input_tensor)
+        probs = torch.softmax(logits, dim=1).cpu().numpy().flatten()
+    pred_class = int(probs.argmax())
+    prob_up = float(probs[1])
+    return pred_class, prob_up
+
 
 if __name__ == "__main__":
     print(f"Using device: {DEVICE}")
 
-    # ---------------------------------------------------------
-    # 1. LOAD CONFIGURATION
-    # ---------------------------------------------------------
-    try:
-        with open(f'{MODEL_PATH}model_config.json', 'r') as f:
-            config_data = json.load(f)
-        feature_cols = config_data['feature_cols']
-        input_dim = config_data['input_dim']
-        print(f"Loaded config. Using {input_dim} features.")
-    except FileNotFoundError:
-        print("Error: model_config.json not found. Run train.py first.")
-        exit()
+    config_path = f"{MODEL_PATH}model_config.json"
+    if not os.path.exists(config_path):
+        raise FileNotFoundError("model_config.json not found. Run train.py first.")
 
-    # ---------------------------------------------------------
-    # 2. LOAD SCALERS
-    # ---------------------------------------------------------
-    try:
-        feature_scaler = joblib.load(f'{SCALER_PATH}feature_scaler.pkl')
-        target_scaler = joblib.load(f'{SCALER_PATH}target_scaler.pkl')
-        print("Scalers loaded successfully.")
-    except Exception as e:
-        print(f"Error loading scalers: {e}")
-        exit()
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_data = json.load(f)
 
-    # ---------------------------------------------------------
-    # 3. LOAD & PREPARE DATA
-    # ---------------------------------------------------------
-    # We load the RAW data (because we fixed data_merging.ipynb to save raw)
-    df_raw = pd.read_csv(f'{PROCESSED_DATA_PATH}training_data.csv')
-    
-    # Get the last SEQ_LEN rows for prediction
-    # We take a slightly larger slice to ensure we have enough, then tail it
-    df_recent = df_raw.tail(SEQ_LEN).copy()
+    feature_cols = config_data["feature_cols"]
+    input_dim = config_data["input_dim"]
+    seq_len = int(config_data.get("seq_len", SEQ_LEN))
+    num_classes = int(config_data.get("num_classes", 2))
 
-    if len(df_recent) < SEQ_LEN:
-        print(f"Error: Not enough data. Need {SEQ_LEN} rows, got {len(df_recent)}")
-        exit()
+    if config_data.get("task") not in {None, "directional_classification"}:
+        raise ValueError(
+            "model_config.json is not for directional classification. "
+            "Run train.py to regenerate classification artifacts."
+        )
 
-    # Capture the REAL last close price (before scaling) for reporting
-    last_actual_close = df_recent['Close'].iloc[-1]
+    scaler_path = f"{SCALER_PATH}feature_scaler.pkl"
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError("feature_scaler.pkl not found. Run train.py first.")
+    feature_scaler = joblib.load(scaler_path)
 
-    # SCALE THE FEATURES
-    # IMPORTANT: We use transform(), NOT fit()
-    try:
-        df_recent[feature_cols] = feature_scaler.transform(df_recent[feature_cols])
-    except KeyError as e:
-        print(f"Column mismatch error: {e}")
-        print("Ensure feature_cols in config match columns in csv.")
-        exit()
+    data_path = f"{PROCESSED_DATA_PATH}training_data.csv"
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"Missing data file: {data_path}")
 
-    # Convert to numpy array for the model
-    recent_data = df_recent[feature_cols].values
+    df_raw = pd.read_csv(data_path)
+    if "Date" in df_raw.columns:
+        df_raw["Date"] = pd.to_datetime(df_raw["Date"])
+        df_raw = df_raw.sort_values("Date").reset_index(drop=True)
 
-    # ---------------------------------------------------------
-    # 4. LOAD MODEL
-    # ---------------------------------------------------------
+    missing_cols = [c for c in feature_cols if c not in df_raw.columns]
+    if missing_cols:
+        raise ValueError(
+            "Feature columns in model config are missing from training_data.csv: "
+            f"{missing_cols}. Run train.py to regenerate consistent artifacts."
+        )
+
+    df_recent = df_raw.tail(seq_len).copy()
+    if len(df_recent) < seq_len:
+        raise ValueError(f"Not enough data. Need {seq_len} rows, got {len(df_recent)}")
+
+    last_actual_close = float(df_recent["Close"].iloc[-1]) if "Close" in df_recent.columns else None
+    scaled_recent = feature_scaler.transform(df_recent[feature_cols].values)
+
     model = LSTMModel(
         input_dim=input_dim,
         hidden_dim=HIDDEN_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
-        output_dim=1
+        output_dim=num_classes,
     ).to(DEVICE)
 
+    model_path = f"{MODEL_PATH}best_model.pth"
+    if not os.path.exists(model_path):
+        raise FileNotFoundError("best_model.pth not found. Run train.py first.")
+
     try:
-        model.load_state_dict(torch.load(f'{MODEL_PATH}best_model.pth', map_location=DEVICE))
-        print("Model weights loaded.")
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        exit()
+        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Model checkpoint shape does not match classification architecture. "
+            "Run train.py to regenerate best_model.pth."
+        ) from exc
 
-    # ---------------------------------------------------------
-    # 5. PREDICT
-    # ---------------------------------------------------------
-    # The model outputs a Scaled Price (0-1)
-    prediction_scaled = predict_next_day(model, recent_data, DEVICE)
-    print(f"Raw Scaled Prediction: {prediction_scaled:.4f}")
+    pred_class, prob_up = predict_next_direction(model, scaled_recent, DEVICE)
+    direction = "UP" if pred_class == 1 else "DOWN_OR_FLAT"
 
-    # ---------------------------------------------------------
-    # 6. INVERSE TRANSFORM
-    # ---------------------------------------------------------
-    # Convert scaled price back to dollars
-    # scaler expects shape (n_samples, n_features), so we pass [[value]]
-    predicted_price = target_scaler.inverse_transform([[prediction_scaled]])[0][0]
-
-    # Calculate metrics
-    change_dollar = predicted_price - last_actual_close
-    change_pct = (change_dollar / last_actual_close) * 100
-    direction = "UP" if change_pct > 0 else "DOWN"
-
-    print("-" * 30)
-    print(f"PREDICTION REPORT")
-    print("-" * 30)
-    print(f"Last Actual Close:    ${last_actual_close:.2f}")
-    print(f"Predicted Next Close: ${predicted_price:.2f}")
-    print(f"Predicted Move:       {direction} ({change_pct:+.2f}%)")
-    print("-" * 30)
+    print("-" * 36)
+    print("DIRECTIONAL PREDICTION REPORT")
+    print("-" * 36)
+    if last_actual_close is not None:
+        print(f"Last Close:         ${last_actual_close:.2f}")
+    print(f"Predicted Class:    {pred_class} ({direction})")
+    print(f"Probability(UP):    {prob_up:.2%}")
+    print(f"Probability(DOWN):  {1.0 - prob_up:.2%}")
+    print("-" * 36)

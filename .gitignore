@@ -4,5 +4,12 @@ __pycache__/
 .venv/
 venv/
 env/
-.en
-3.12 python/
+.env
+.DS_Store
+.ipynb_checkpoints/
+
+# --- Web app ---
+web/node_modules/
+web/.next/
+web/.env.local
+web/.env*.local

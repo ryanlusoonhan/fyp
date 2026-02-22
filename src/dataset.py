@@ -37,11 +37,12 @@ class TimeSeriesDataset(Dataset):
 
 class StockDataset(Dataset):
     """
-    Enhanced dataset with multiple features
+    Dataset for directional classification.
     """
     def __init__(self, sequences, targets):
         self.sequences = torch.FloatTensor(sequences)
-        self.targets = torch.FloatTensor(targets)
+        # CrossEntropyLoss expects class indices in int64 (LongTensor).
+        self.targets = torch.LongTensor(np.asarray(targets, dtype=np.int64))
     
     def __len__(self):
         return len(self.sequences)

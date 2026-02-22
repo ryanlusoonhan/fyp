@@ -1,0 +1,102 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-display: var(--font-display);
+
+  --color-shell: #06070d;
+  --color-surface: #090c16;
+  --color-panel: rgba(18, 22, 34, 0.82);
+  --color-panel-strong: rgba(24, 31, 49, 0.75);
+  --color-border: rgba(132, 144, 176, 0.28);
+  --color-ring: #f5a524;
+  --color-foreground: #f4f7fb;
+  --color-muted: #9ca6be;
+  --color-accent: #f5a524;
+  --color-accent-foreground: #2b1a00;
+  --color-positive: #38d996;
+  --color-negative: #ff6e86;
+  --color-info: #6fa8ff;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body {
+  min-height: 100%;
+  color: var(--color-foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  background:
+    radial-gradient(circle at 12% 4%, rgba(245, 165, 36, 0.16), transparent 28%),
+    radial-gradient(circle at 90% 0%, rgba(111, 168, 255, 0.2), transparent 34%),
+    radial-gradient(circle at 55% 85%, rgba(56, 217, 150, 0.08), transparent 40%),
+    linear-gradient(180deg, #06070d 0%, #080b14 44%, #0a0f1c 100%);
+}
+
+.font-display {
+  font-family: var(--font-display), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.glass-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at center, black, transparent 80%);
+}
+
+.reveal-up {
+  animation: reveal-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.reveal-up:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.reveal-up:nth-child(3) {
+  animation-delay: 140ms;
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-up,
+  .pulse-dot {
+    animation: none;
+  }
+}

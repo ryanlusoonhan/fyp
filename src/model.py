@@ -74,15 +74,21 @@ class TransformerModel(nn.Module):
     
 
 class LSTMModel(nn.Module):
-    # Update output_dim default to 2
     def __init__(self, input_dim, hidden_dim=128, num_layers=2, dropout=0.2, output_dim=2):
         super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout)
+        lstm_dropout = dropout if num_layers > 1 else 0.0
+        self.lstm = nn.LSTM(
+            input_dim,
+            hidden_dim,
+            num_layers,
+            batch_first=True,
+            dropout=lstm_dropout,
+        )
         self.fc = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim) # Output is now size 2
+            nn.Linear(hidden_dim // 2, output_dim)
         )
 
     def forward(self, x):
