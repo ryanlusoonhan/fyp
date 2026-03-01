@@ -23,6 +23,21 @@ function readEnv(name: string): string | null {
   return value.trim();
 }
 
+function isTruthy(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function allowDevAuthOverrides(): boolean {
+  const explicit = readEnv('ALLOW_DEV_AUTH_OVERRIDES');
+  if (explicit !== null) {
+    return isTruthy(explicit);
+  }
+  return process.env.NODE_ENV !== 'production';
+}
+
 function parseBearerToken(rawAuthorization: string | null): string | null {
   if (!rawAuthorization) {
     return null;
@@ -112,16 +127,21 @@ async function resolvePlanFromSupabase(accessToken: string): Promise<{ userId: s
 
 export async function getRequestContext(defaultPlan: PlanId = 'free'): Promise<AuthContext> {
   const hdrs = await headers();
+  const devOverridesEnabled = allowDevAuthOverrides();
 
-  const planHeader = hdrs.get('x-plan-id');
-  if (planHeader && isPlanId(planHeader)) {
-    return { plan: planHeader, userId: null, source: 'header' };
+  if (devOverridesEnabled) {
+    const planHeader = hdrs.get('x-plan-id');
+    if (planHeader && isPlanId(planHeader)) {
+      return { plan: planHeader, userId: null, source: 'header' };
+    }
   }
 
   const token = parseBearerToken(hdrs.get('authorization'));
-  const planFromToken = parsePlanFromDevToken(token);
-  if (planFromToken) {
-    return { plan: planFromToken, userId: null, source: 'bearer' };
+  if (devOverridesEnabled) {
+    const planFromToken = parsePlanFromDevToken(token);
+    if (planFromToken) {
+      return { plan: planFromToken, userId: null, source: 'bearer' };
+    }
   }
 
   if (token) {

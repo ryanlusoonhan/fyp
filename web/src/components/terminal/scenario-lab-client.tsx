@@ -40,12 +40,17 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
     setError(null);
 
     try {
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+      };
+      const devPlanId = process.env.NEXT_PUBLIC_DEV_PLAN_ID ?? 'elite';
+      if (process.env.NODE_ENV !== 'production') {
+        headers['x-plan-id'] = devPlanId;
+      }
+
       const response = await fetch('/api/pro/scenario/run', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-plan-id': 'elite',
-        },
+        headers,
         body: JSON.stringify(form),
       });
 

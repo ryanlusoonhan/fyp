@@ -27,9 +27,20 @@ describe('stripe billing utilities', () => {
     expect(resolveAppUrl(request)).toBe('https://env.example.com');
   });
 
-  it('falls back to request origin headers', () => {
+  it('uses localhost fallback when request headers are not trusted', () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
     delete process.env.APP_URL;
+
+    const requestWithOrigin = new Request('http://localhost:3000/pricing', {
+      headers: { origin: 'https://origin.example.com' },
+    });
+    expect(resolveAppUrl(requestWithOrigin)).toBe('http://localhost:3000');
+  });
+
+  it('honors request origin headers when TRUST_REQUEST_HOST_HEADERS is enabled', () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.APP_URL;
+    process.env.TRUST_REQUEST_HOST_HEADERS = '1';
 
     const requestWithOrigin = new Request('http://localhost:3000/pricing', {
       headers: { origin: 'https://origin.example.com' },

@@ -3,6 +3,7 @@ import {
   Activity,
   CandlestickChart,
   CreditCard,
+  Database,
   Gauge,
   Network,
   ShieldCheck,
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/explainability', label: 'Explainability', icon: ShieldCheck },
   { href: '/scenario-lab', label: 'Scenario Lab', icon: SlidersHorizontal },
   { href: '/walk-forward', label: 'Walk-Forward', icon: Network },
+  { href: '/openbb', label: 'OpenBB', icon: Database },
   { href: '/pricing', label: 'Pricing', icon: CreditCard },
 ] as const;
 
@@ -86,7 +88,7 @@ export function TerminalShell({ pathname, children }: { pathname: string; childr
                 <p className="mt-1 font-display text-2xl">{activeItem?.label ?? 'Overview'}</p>
               </div>
               <div className="border border-border bg-panel-strong px-3 py-2 font-mono text-[11px] text-muted">
-                Local tier simulation: set `x-plan-id` header
+                Dev tier simulation: set `NEXT_PUBLIC_DEV_PLAN_ID`
               </div>
             </div>
           </header>

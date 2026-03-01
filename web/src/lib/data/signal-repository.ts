@@ -24,6 +24,7 @@ export interface PythonSignalPayload {
   last_refresh_at?: string;
   latest_market_date?: string;
   data_provider?: string;
+  logged_at?: string;
 }
 
 export function parsePayloadFromStdout(stdout: string): PythonSignalPayload {
@@ -67,12 +68,27 @@ function resolvePythonCommands(repoRoot: string): string[] {
   return [...new Set(commands)];
 }
 
-function payloadToSignal(payload: PythonSignalPayload): Signal {
+function buildSignalId(payload: PythonSignalPayload, salt = ''): string {
+  const raw = [
+    payload.as_of_date ?? 'unknown-date',
+    payload.objective ?? 'return',
+    payload.last_refresh_at ?? payload.logged_at ?? '',
+    payload.threshold?.toFixed?.(4) ?? String(payload.threshold ?? ''),
+    payload.model_version ?? '',
+    salt,
+  ]
+    .filter((part) => part.length > 0)
+    .join('-');
+
+  return `sig-${raw.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
+function payloadToSignal(payload: PythonSignalPayload, salt = ''): Signal {
   const classification = classifySignal(payload.probability_buy, payload.threshold);
   const payloadObjective = payload.objective === 'f1' ? 'f1' : 'return';
 
   return {
-    id: `sig-${payload.as_of_date}`,
+    id: buildSignalId(payload, salt),
     asOfDate: payload.as_of_date,
     market: 'HSI',
     predictedClass: payload.pred_class,
@@ -142,9 +158,10 @@ async function runPythonInference(objective: Objective, extraArgs: string[] = []
 
 export async function getLatestSignal(objective: Objective = 'return'): Promise<Signal> {
   try {
-    const payload = await runPythonInference(objective);
+    const payload = await runPythonInference(objective, ['--no-append-history']);
     return payloadToSignal(payload);
-  } catch {
+  } catch (error) {
+    console.error('Failed to load latest signal from Python inference:', error);
     return fallbackSignal();
   }
 }
@@ -178,20 +195,56 @@ export function parseSignalHistoryCsv(csvContent: string): PythonSignalPayload[]
       data_status: record.data_status || undefined,
       last_refresh_at: record.last_refresh_at || undefined,
       latest_market_date: record.latest_market_date || undefined,
+      logged_at: record.logged_at || undefined,
     } satisfies PythonSignalPayload;
   });
+}
+
+function parseSortTimestamp(payload: PythonSignalPayload): number {
+  const candidates = [payload.logged_at, payload.last_refresh_at];
+  for (const value of candidates) {
+    if (!value) {
+      continue;
+    }
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return Date.parse(`${payload.as_of_date}T00:00:00Z`) || 0;
+}
+
+function dedupeHistoryRows(rows: PythonSignalPayload[]): PythonSignalPayload[] {
+  const seen = new Set<string>();
+  const deduped: PythonSignalPayload[] = [];
+  for (const row of rows) {
+    const key = `${row.as_of_date}|${row.objective}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
 }
 
 async function loadSignalHistoryFromCsv(limit: number): Promise<Signal[]> {
   const historyPath = path.resolve(getModelsDir(), 'signal_history_weekly.csv');
   try {
     const raw = await fsPromises.readFile(historyPath, 'utf8');
-    const parsed = parseSignalHistoryCsv(raw)
+    const parsed = dedupeHistoryRows(
+      parseSignalHistoryCsv(raw)
       .filter((row) => row.as_of_date)
-      .sort((a, b) => String(b.as_of_date).localeCompare(String(a.as_of_date)))
-      .slice(0, limit);
+      .sort((a, b) => {
+        const byDate = String(b.as_of_date).localeCompare(String(a.as_of_date));
+        if (byDate !== 0) {
+          return byDate;
+        }
+        return parseSortTimestamp(b) - parseSortTimestamp(a);
+      }),
+    ).slice(0, limit);
 
-    return parsed.map(payloadToSignal);
+    return parsed.map((payload, index) => payloadToSignal(payload, String(index)));
   } catch {
     return [];
   }

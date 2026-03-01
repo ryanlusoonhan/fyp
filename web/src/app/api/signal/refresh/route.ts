@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
+import { getRequestContext } from '@/lib/api/auth';
 import { getLatestSignal, refreshLatestSignal } from '@/lib/data/signal-repository';
+import { canAccessFeature } from '@/lib/domain/entitlements';
 import type { Objective } from '@/lib/types';
 
 export function buildRefreshInferenceArgs(objective: Objective = 'return'): string[] {
@@ -18,6 +20,11 @@ export async function POST(request: Request) {
     objective = normalizeObjective(body?.objective);
   } catch {
     objective = 'return';
+  }
+
+  const auth = await getRequestContext();
+  if (!canAccessFeature(auth.plan, 'latest-signal-live')) {
+    return NextResponse.json({ error: 'Upgrade required for live refresh.' }, { status: 403 });
   }
 
   try {

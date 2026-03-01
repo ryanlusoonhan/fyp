@@ -1,15 +1,61 @@
+# --- OS / editor ---
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyd
+*.so
 .venv/
 venv/
 env/
-.env
-.DS_Store
+.python-version
 .ipynb_checkpoints/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# --- Env files ---
+.env
+.env.*
+!.env.example
+web/.env.local
+web/.env*.local
+!web/.env.example
+
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # --- Web app ---
 web/node_modules/
 web/.next/
-web/.env.local
-web/.env*.local
+web/out/
+web/.turbo/
+web/coverage/
+
+# --- Generated market/model artifacts ---
+data/raw/openbb/*.csv
+data/raw/openbb/manifest.json
+data/processed/training_data_openbb.csv
+data/processed/scalers/*.pkl
+models/*.pth
+models/*.png
+models/backtest_weekly_walk_forward.csv
+models/openbb_refresh_status.json
+models/signal_history_weekly.csv

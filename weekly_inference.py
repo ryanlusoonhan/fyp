@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import os
+from datetime import datetime
 
 import joblib
 import numpy as np
@@ -102,7 +103,7 @@ def build_signal_payload(
     return payload
 
 
-def append_signal_history(payload: dict, history_path: str = SIGNAL_HISTORY_FILE) -> None:
+def upsert_signal_history(payload: dict, history_path: str = SIGNAL_HISTORY_FILE) -> None:
     row = {
         "as_of_date": payload.get("as_of_date"),
         "last_close": payload.get("last_close"),
@@ -116,14 +117,29 @@ def append_signal_history(payload: dict, history_path: str = SIGNAL_HISTORY_FILE
         "data_status": payload.get("data_status"),
         "last_refresh_at": payload.get("last_refresh_at"),
         "latest_market_date": payload.get("latest_market_date"),
+        "logged_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
     }
     os.makedirs(os.path.dirname(history_path), exist_ok=True)
-    file_exists = os.path.exists(history_path)
-    with open(history_path, "a", encoding="utf-8", newline="") as file:
+    fieldnames = list(row.keys())
+    dedupe_key = (str(row.get("as_of_date") or ""), str(row.get("objective") or ""))
+
+    existing_rows: list[dict[str, str | float | int | None]] = []
+    if os.path.exists(history_path):
+        with open(history_path, "r", encoding="utf-8", newline="") as file:
+            reader = csv.DictReader(file)
+            for existing in reader:
+                existing_key = (
+                    str(existing.get("as_of_date") or ""),
+                    str(existing.get("objective") or ""),
+                )
+                if existing_key != dedupe_key:
+                    existing_rows.append(existing)
+
+    existing_rows.append(row)
+    with open(history_path, "w", encoding="utf-8", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=list(row.keys()))
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(row)
+        writer.writeheader()
+        writer.writerows(existing_rows)
 
 
 def infer_threshold_from_validation(
@@ -214,6 +230,12 @@ def parse_args():
         type=int,
         default=180,
         help="Live refresh lookback window in days.",
+    )
+    parser.add_argument(
+        "--append-history",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to persist this inference result in models/signal_history_weekly.csv.",
     )
     return parser.parse_args()
 
@@ -343,7 +365,8 @@ if __name__ == "__main__":
         latest_market_date=status.get("latest_market_date"),
         data_provider=status.get("provider"),
     )
-    append_signal_history(payload)
+    if args.append_history:
+        upsert_signal_history(payload)
 
     if args.json_output:
         print(json.dumps(payload))

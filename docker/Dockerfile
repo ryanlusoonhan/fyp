@@ -4,6 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV VIRTUAL_ENV=/opt/venv
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -15,14 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ln -sf /usr/bin/python3 /usr/local/bin/python && \
-    ln -sf /usr/bin/pip3 /usr/local/bin/pip
+RUN python3 -m venv "$VIRTUAL_ENV"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /workspace
 
 COPY requirements.txt /tmp/requirements.txt
-RUN python -m pip install --upgrade pip setuptools wheel && \
-    python -m pip install -r /tmp/requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /tmp/requirements.txt
 
 COPY web/package.json web/package-lock.json /workspace/web/
 RUN npm --prefix /workspace/web ci

@@ -11,7 +11,7 @@ services:
       - web_node_modules:/workspace/web/node_modules
     environment:
       NELL_REPO_ROOT: /workspace
-      PYTHON_BIN: /usr/local/bin/python
+      PYTHON_BIN: /opt/venv/bin/python
       NELL_QUIET_DEVICE: "1"
       NEXT_TELEMETRY_DISABLED: "1"
     command: ["/usr/local/bin/start-web"]
