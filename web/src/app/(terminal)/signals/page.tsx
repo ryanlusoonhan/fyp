@@ -20,6 +20,7 @@ export default async function SignalsPage() {
               <th className="px-4 py-3">Prob(BUY)</th>
               <th className="px-4 py-3">Threshold</th>
               <th className="px-4 py-3">Confidence</th>
+              <th className="px-4 py-3">Data</th>
             </tr>
           </thead>
           <tbody>
@@ -34,6 +35,7 @@ export default async function SignalsPage() {
                 <td className="px-4 py-3 font-semibold">{toPercent(signal.probBuy, 2)}</td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-300">{signal.threshold.toFixed(2)}</td>
                 <td className="px-4 py-3 capitalize text-slate-200">{signal.confidenceBand}</td>
+                <td className="px-4 py-3 font-mono text-xs uppercase text-slate-300">{signal.dataStatus ?? 'n/a'}</td>
               </tr>
             ))}
           </tbody>

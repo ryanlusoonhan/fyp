@@ -27,6 +27,10 @@ export function SignalHeroCard({ signal }: { signal: Signal }) {
           <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Probability buy</p>
           <p className="font-display text-3xl">{toPercent(signal.probBuy, 2)}</p>
           <p className="font-mono text-[11px] text-muted">Threshold {signal.threshold.toFixed(2)}</p>
+          <p className="font-mono text-[11px] text-muted uppercase">
+            {signal.dataStatus ?? 'unknown'}
+            {signal.dataProvider ? ` · ${signal.dataProvider}` : ''}
+          </p>
         </div>
       </div>
     </Card>

@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    working_dir: /workspace
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/workspace
+      - web_node_modules:/workspace/web/node_modules
+    environment:
+      NELL_REPO_ROOT: /workspace
+      PYTHON_BIN: /usr/local/bin/python
+      NELL_QUIET_DEVICE: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    command: ["/usr/local/bin/start-web"]
+    stdin_open: true
+    tty: true
+
+volumes:
+  web_node_modules:

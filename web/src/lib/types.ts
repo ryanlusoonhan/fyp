@@ -14,6 +14,10 @@ export interface Signal {
   objective: Objective;
   modelVersion: string;
   confidenceBand: 'low' | 'medium' | 'high';
+  dataStatus?: 'fresh' | 'stale' | 'empty' | string;
+  lastRefreshAt?: string;
+  latestMarketDate?: string;
+  dataProvider?: string;
 }
 
 export interface SignalExplanation {

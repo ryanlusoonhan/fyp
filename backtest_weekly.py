@@ -16,7 +16,7 @@ from src.model import LSTMModel
 from src.utils import (
     add_triple_barrier_labels,
     create_sequences,
-    engineer_features_past_only,
+    engineer_features_market_only,
     time_split_with_gap,
 )
 
@@ -189,8 +189,14 @@ def backtest(
     walk_forward_window: int = 100,
     walk_forward_step: int = 50,
     cost: float = 0.001,
+    data_file: str | None = None,
 ):
-    path = f"{PROCESSED_DATA_PATH}training_data.csv"
+    if data_file:
+        path = data_file
+    elif os.path.exists(OPENBB_TRAINING_FILE):
+        path = OPENBB_TRAINING_FILE
+    else:
+        path = f"{PROCESSED_DATA_PATH}training_data.csv"
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing data file: {path}")
 
@@ -215,7 +221,7 @@ def backtest(
     profit_take = float(cfg.get("profit_take", 0.03))
     stop_loss = float(cfg.get("stop_loss", 0.015))
 
-    df = engineer_features_past_only(df, sentiment_window=SENTIMENT_WINDOW)
+    df = engineer_features_market_only(df)
     df = add_triple_barrier_labels(
         df,
         barrier_window=barrier_window,
@@ -227,11 +233,17 @@ def backtest(
     if missing_cols:
         raise ValueError(
             "Feature columns in weekly config are missing from data: "
-            f"{missing_cols}. Re-run train_weekly.py."
+            f"{missing_cols}. Re-run `python openbb_refresh.py --mode batch ...` then train_weekly.py."
         )
 
     _, df_val = time_split_with_gap(df, train_split=TRAIN_SPLIT, gap=seq_len)
     print(f"Validation rows: {len(df_val)}")
+    if len(df_val) <= seq_len:
+        raise ValueError(
+            "Not enough validation rows for backtest after split. "
+            f"Need > {seq_len}, got {len(df_val)}. "
+            "Run `python openbb_refresh.py --mode batch --start-date 2015-01-01 --end-date <today>`."
+        )
 
     val_feat = scaler.transform(df_val[feature_cols].values)
     y_val_raw = df_val["Target_Class"].astype(int).values
@@ -396,6 +408,12 @@ def parse_args():
         default=0.001,
         help="Per-side transaction cost applied in strategy simulation.",
     )
+    parser.add_argument(
+        "--data-file",
+        type=str,
+        default=None,
+        help="Optional data file path override.",
+    )
     return parser.parse_args()
 
 
@@ -408,4 +426,5 @@ if __name__ == "__main__":
         walk_forward_window=args.walk_forward_window,
         walk_forward_step=args.walk_forward_step,
         cost=args.cost,
+        data_file=args.data_file,
     )

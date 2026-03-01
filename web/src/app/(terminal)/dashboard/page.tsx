@@ -2,6 +2,7 @@ import { Activity, GaugeCircle, Layers3, TrendingUp } from 'lucide-react';
 
 import { EquityCurveChart } from '@/components/charts/equity-curve-chart';
 import { KpiCard } from '@/components/terminal/kpi-card';
+import { RefreshSignalButton } from '@/components/terminal/refresh-signal-button';
 import { SignalHeroCard } from '@/components/terminal/signal-hero-card';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { getLatestSignal } from '@/lib/data/signal-repository';
@@ -73,23 +74,28 @@ export default async function DashboardPage() {
         </Card>
 
         <Card className="space-y-4">
-          <CardTitle>Model monitor</CardTitle>
-          <CardDescription>Operational checks for the current cycle.</CardDescription>
+          <CardTitle>Data reliability</CardTitle>
+          <CardDescription>Operational controls and freshness state.</CardDescription>
 
           <div className="space-y-3 text-sm text-slate-200">
             <div className="border border-border bg-panel-strong p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Optimization objective</p>
-              <p className="mt-1 font-semibold">Return maximization</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Data provider</p>
+              <p className="mt-1 font-semibold">{signal.dataProvider ?? 'yfinance'}</p>
             </div>
             <div className="border border-border bg-panel-strong p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Cadence</p>
-              <p className="mt-1">Weekly decision, daily data refresh.</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Latest market date</p>
+              <p className="mt-1">{signal.latestMarketDate ?? signal.asOfDate}</p>
             </div>
             <div className="border border-border bg-panel-strong p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Validation status</p>
-              <p className="mt-1">Walk-forward metrics available and current.</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Refresh status</p>
+              <p className="mt-1 capitalize">
+                {signal.dataStatus ?? 'unknown'}
+                {signal.lastRefreshAt ? ` · ${signal.lastRefreshAt}` : ''}
+              </p>
             </div>
           </div>
+
+          <RefreshSignalButton />
         </Card>
       </section>
     </>

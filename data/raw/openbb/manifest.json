@@ -1,0 +1,40 @@
+{
+  "refresh": {
+    "provider": "yfinance",
+    "mode": "live",
+    "start_date": "2025-09-02",
+    "end_date": "2026-03-01",
+    "rows_index_history": 492,
+    "rows_equity_history": 1200,
+    "rows_currency_history": 256,
+    "rows_news_recent": 106,
+    "rows_training": 120,
+    "last_refresh_at": "2026-03-01T09:55:15Z",
+    "latest_market_date": "2026-02-27",
+    "data_status": "fresh",
+    "training_file": null
+  },
+  "index_symbols": [
+    "^HSI",
+    "^VIX",
+    "^TNX",
+    "^GSPC"
+  ],
+  "equity_symbols": [
+    "0005.HK",
+    "0700.HK",
+    "0939.HK",
+    "0941.HK",
+    "1299.HK",
+    "1398.HK",
+    "1810.HK",
+    "2318.HK",
+    "3690.HK",
+    "9988.HK"
+  ],
+  "currency_symbols": [
+    "USDHKD",
+    "USDCNY"
+  ],
+  "provider": "yfinance"
+}

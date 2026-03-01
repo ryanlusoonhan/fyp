@@ -1,5 +1,6 @@
 import importlib
 import pathlib
+import tempfile
 import unittest
 
 import numpy as np
@@ -120,6 +121,61 @@ class TestDirectionalPipeline(unittest.TestCase):
         pred_class, label = weekly_inference.classify_weekly_signal(prob_buy=0.54, threshold=0.55)
         self.assertEqual(pred_class, 0)
         self.assertEqual(label, "NO_BUY")
+
+    def test_train_weekly_resolves_openbb_dataset_with_fallback(self):
+        train_weekly = importlib.import_module("train_weekly")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            openbb_file = pathlib.Path(tmp) / "training_data_openbb.csv"
+            legacy_file = pathlib.Path(tmp) / "training_data.csv"
+            legacy_file.write_text("Date,Close\n2026-01-01,1\n", encoding="utf-8")
+
+            selected = train_weekly.resolve_training_data_path(
+                openbb_path=str(openbb_file),
+                fallback_path=str(legacy_file),
+                min_rows=1,
+            )
+            self.assertEqual(selected, str(legacy_file))
+
+            openbb_file.write_text("Date,Close\n2026-01-01,1\n", encoding="utf-8")
+            selected = train_weekly.resolve_training_data_path(
+                openbb_path=str(openbb_file),
+                fallback_path=str(legacy_file),
+                min_rows=1,
+            )
+            self.assertEqual(selected, str(openbb_file))
+
+    def test_weekly_inference_payload_remains_backward_compatible(self):
+        weekly_inference = importlib.import_module("weekly_inference")
+
+        payload = weekly_inference.build_signal_payload(
+            as_of_date="2026-03-01",
+            last_close=25000.0,
+            threshold=0.5,
+            objective="return",
+            pred_class=1,
+            label="BUY",
+            probability_buy=0.62,
+            model_version="best_model_weekly_binary.pth",
+            data_status="fresh",
+            last_refresh_at="2026-03-01T10:00:00Z",
+            latest_market_date="2026-02-28",
+        )
+
+        required_keys = {
+            "as_of_date",
+            "last_close",
+            "threshold",
+            "objective",
+            "pred_class",
+            "label",
+            "probability_buy",
+            "probability_no_buy",
+            "model_version",
+        }
+        self.assertTrue(required_keys.issubset(set(payload.keys())))
+        self.assertEqual(payload["data_status"], "fresh")
+        self.assertEqual(payload["latest_market_date"], "2026-02-28")
 
 
 if __name__ == "__main__":

@@ -58,3 +58,34 @@ RAW_DATA_PATH = "data/raw/"
 PROCESSED_DATA_PATH = "data/processed/"
 MODEL_PATH = "models/"
 SCALER_PATH = "data/processed/scalers/"
+
+# -------------------
+# OPENBB SETTINGS
+# -------------------
+OPENBB_PROVIDER = "yfinance"
+OPENBB_BATCH_START_DATE = "2015-01-01"
+
+OPENBB_INDEX_SYMBOLS = ["^HSI", "^VIX", "^TNX", "^GSPC"]
+OPENBB_EQUITY_SYMBOLS = [
+    "0005.HK",
+    "0700.HK",
+    "0939.HK",
+    "0941.HK",
+    "1299.HK",
+    "1398.HK",
+    "1810.HK",
+    "2318.HK",
+    "3690.HK",
+    "9988.HK",
+]
+OPENBB_CURRENCY_SYMBOLS = ["USDHKD", "USDCNY"]
+
+OPENBB_RAW_DATA_PATH = "data/raw/openbb/"
+OPENBB_INDEX_HISTORY_FILE = f"{OPENBB_RAW_DATA_PATH}index_history.csv"
+OPENBB_EQUITY_HISTORY_FILE = f"{OPENBB_RAW_DATA_PATH}equity_history.csv"
+OPENBB_CURRENCY_HISTORY_FILE = f"{OPENBB_RAW_DATA_PATH}currency_history.csv"
+OPENBB_NEWS_FILE = f"{OPENBB_RAW_DATA_PATH}news_recent.csv"
+OPENBB_MANIFEST_FILE = f"{OPENBB_RAW_DATA_PATH}manifest.json"
+OPENBB_TRAINING_FILE = f"{PROCESSED_DATA_PATH}training_data_openbb.csv"
+OPENBB_REFRESH_STATUS_FILE = f"{MODEL_PATH}openbb_refresh_status.json"
+SIGNAL_HISTORY_FILE = f"{MODEL_PATH}signal_history_weekly.csv"

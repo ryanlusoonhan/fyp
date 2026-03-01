@@ -1,0 +1,15 @@
+{
+  "provider": "yfinance",
+  "mode": "live",
+  "start_date": "2025-09-02",
+  "end_date": "2026-03-01",
+  "rows_index_history": 492,
+  "rows_equity_history": 1200,
+  "rows_currency_history": 256,
+  "rows_news_recent": 106,
+  "rows_training": 120,
+  "last_refresh_at": "2026-03-01T09:55:15Z",
+  "latest_market_date": "2026-02-27",
+  "data_status": "fresh",
+  "training_file": null
+}

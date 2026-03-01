@@ -16,7 +16,7 @@ from src.model import LSTMModel
 from src.utils import (
     add_triple_barrier_labels,
     create_sequences,
-    engineer_features_past_only,
+    engineer_features_market_only,
     plot_training_loss,
     time_split_with_gap,
 )
@@ -53,6 +53,25 @@ def compute_class_weights(y: np.ndarray, num_classes: int = 2) -> torch.Tensor:
     counts[counts == 0] = 1.0
     weights = counts.sum() / (num_classes * counts)
     return torch.tensor(weights, dtype=torch.float32)
+
+
+def resolve_training_data_path(
+    openbb_path: str = OPENBB_TRAINING_FILE,
+    fallback_path: str = f"{PROCESSED_DATA_PATH}training_data.csv",
+    min_rows: int = max(200, (SEQ_LEN * 6)),
+) -> str:
+    def has_min_rows(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        with open(path, "r", encoding="utf-8") as file:
+            row_count = sum(1 for _ in file) - 1
+        return row_count >= min_rows
+
+    if has_min_rows(openbb_path):
+        return openbb_path
+    if has_min_rows(fallback_path):
+        return fallback_path
+    raise FileNotFoundError(f"Missing data file. Checked: {openbb_path}, {fallback_path}")
 
 
 def train_model(model, train_loader, val_loader, device, class_weights=None, num_epochs=NUM_EPOCHS):
@@ -140,16 +159,15 @@ def train_model(model, train_loader, val_loader, device, class_weights=None, num
 if __name__ == "__main__":
     set_seed(42)
 
-    path = f"{PROCESSED_DATA_PATH}training_data.csv"
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Missing: {path}")
+    path = resolve_training_data_path()
+    data_source = "openbb_yfinance" if os.path.normpath(path) == os.path.normpath(OPENBB_TRAINING_FILE) else "legacy_local"
 
     df = pd.read_csv(path)
     if "Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"])
         df = df.sort_values("Date").reset_index(drop=True)
 
-    df = engineer_features_past_only(df, sentiment_window=SENTIMENT_WINDOW)
+    df = engineer_features_market_only(df)
     df = add_triple_barrier_labels(
         df,
         barrier_window=BARRIER_WINDOW,
@@ -208,6 +226,10 @@ if __name__ == "__main__":
                 "barrier_window": BARRIER_WINDOW,
                 "profit_take": PROFIT_TAKE,
                 "stop_loss": STOP_LOSS,
+                "feature_set_version": "openbb_hsi_v1",
+                "data_source": data_source,
+                "data_file": path,
+                "default_threshold": 0.50,
             },
             f,
         )

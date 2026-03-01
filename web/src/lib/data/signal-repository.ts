@@ -1,15 +1,16 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 
 import { classifySignal } from '@/lib/domain/signal-engine';
 import type { Objective, Signal, SignalExplanation } from '@/lib/types';
-import { getRepoRoot } from '@/lib/runtime/paths';
+import { getModelsDir, getRepoRoot } from '@/lib/runtime/paths';
 
 const execFileAsync = promisify(execFile);
 
-interface PythonSignalPayload {
+export interface PythonSignalPayload {
   as_of_date: string;
   last_close: number;
   threshold: number;
@@ -19,9 +20,13 @@ interface PythonSignalPayload {
   probability_buy: number;
   probability_no_buy: number;
   model_version: string;
+  data_status?: string;
+  last_refresh_at?: string;
+  latest_market_date?: string;
+  data_provider?: string;
 }
 
-function parsePayloadFromStdout(stdout: string): PythonSignalPayload {
+export function parsePayloadFromStdout(stdout: string): PythonSignalPayload {
   const trimmed = stdout.trim();
   if (!trimmed) {
     throw new Error('weekly_inference returned empty output');
@@ -62,6 +67,29 @@ function resolvePythonCommands(repoRoot: string): string[] {
   return [...new Set(commands)];
 }
 
+function payloadToSignal(payload: PythonSignalPayload): Signal {
+  const classification = classifySignal(payload.probability_buy, payload.threshold);
+  const payloadObjective = payload.objective === 'f1' ? 'f1' : 'return';
+
+  return {
+    id: `sig-${payload.as_of_date}`,
+    asOfDate: payload.as_of_date,
+    market: 'HSI',
+    predictedClass: payload.pred_class,
+    classification: classification.classification,
+    probBuy: payload.probability_buy,
+    probNoBuy: payload.probability_no_buy,
+    threshold: payload.threshold,
+    objective: payloadObjective,
+    modelVersion: payload.model_version,
+    confidenceBand: classification.confidenceBand,
+    dataStatus: payload.data_status,
+    lastRefreshAt: payload.last_refresh_at,
+    latestMarketDate: payload.latest_market_date,
+    dataProvider: payload.data_provider,
+  };
+}
+
 function fallbackSignal(): Signal {
   const probBuy = 0.4939;
   const threshold = 0.46;
@@ -79,59 +107,102 @@ function fallbackSignal(): Signal {
     objective: 'return',
     modelVersion: 'best_model_weekly_binary.pth',
     confidenceBand: classification.confidenceBand,
+    dataStatus: 'stale',
   };
+}
+
+async function runPythonInference(objective: Objective, extraArgs: string[] = []): Promise<PythonSignalPayload> {
+  const repoRoot = getRepoRoot();
+  const scriptPath = path.resolve(repoRoot, 'weekly_inference.py');
+  const pythonCommands = resolvePythonCommands(repoRoot);
+
+  let payload: PythonSignalPayload | null = null;
+  let lastError: unknown;
+
+  for (const command of pythonCommands) {
+    try {
+      const { stdout } = await execFileAsync(command, [scriptPath, '--objective', objective, '--json', ...extraArgs], {
+        cwd: repoRoot,
+        timeout: 60_000,
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, NELL_QUIET_DEVICE: '1' },
+      });
+      payload = parsePayloadFromStdout(stdout);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!payload) {
+    throw lastError instanceof Error ? lastError : new Error('Unable to invoke weekly inference script');
+  }
+  return payload;
 }
 
 export async function getLatestSignal(objective: Objective = 'return'): Promise<Signal> {
   try {
-    const repoRoot = getRepoRoot();
-    const scriptPath = path.resolve(repoRoot, 'weekly_inference.py');
-    const pythonCommands = resolvePythonCommands(repoRoot);
-
-    let payload: PythonSignalPayload | null = null;
-    let lastError: unknown;
-
-    for (const command of pythonCommands) {
-      try {
-        const { stdout } = await execFileAsync(command, [scriptPath, '--objective', objective, '--json'], {
-          cwd: repoRoot,
-          timeout: 30_000,
-          maxBuffer: 1024 * 1024,
-          env: { ...process.env, NELL_QUIET_DEVICE: '1' },
-        });
-        payload = parsePayloadFromStdout(stdout);
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    if (!payload) {
-      throw lastError instanceof Error ? lastError : new Error('Unable to invoke weekly inference script');
-    }
-
-    const classification = classifySignal(payload.probability_buy, payload.threshold);
-    const payloadObjective = payload.objective === 'f1' ? 'f1' : 'return';
-
-    return {
-      id: `sig-${payload.as_of_date}`,
-      asOfDate: payload.as_of_date,
-      market: 'HSI',
-      predictedClass: payload.pred_class,
-      classification: classification.classification,
-      probBuy: payload.probability_buy,
-      probNoBuy: payload.probability_no_buy,
-      threshold: payload.threshold,
-      objective: payloadObjective,
-      modelVersion: payload.model_version,
-      confidenceBand: classification.confidenceBand,
-    };
+    const payload = await runPythonInference(objective);
+    return payloadToSignal(payload);
   } catch {
     return fallbackSignal();
   }
 }
 
+export function parseSignalHistoryCsv(csvContent: string): PythonSignalPayload[] {
+  const lines = csvContent
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length <= 1) {
+    return [];
+  }
+
+  const headers = lines[0]!.split(',');
+  const rows = lines.slice(1);
+
+  return rows.map((row) => {
+    const values = row.split(',');
+    const record = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
+    return {
+      as_of_date: record.as_of_date,
+      last_close: Number(record.last_close),
+      threshold: Number(record.threshold),
+      objective: record.objective === 'f1' ? 'f1' : 'return',
+      pred_class: Number(record.pred_class) === 1 ? 1 : 0,
+      label: Number(record.pred_class) === 1 ? 'BUY' : 'NO_BUY',
+      probability_buy: Number(record.probability_buy),
+      probability_no_buy: Number(record.probability_no_buy),
+      model_version: record.model_version,
+      data_status: record.data_status || undefined,
+      last_refresh_at: record.last_refresh_at || undefined,
+      latest_market_date: record.latest_market_date || undefined,
+    } satisfies PythonSignalPayload;
+  });
+}
+
+async function loadSignalHistoryFromCsv(limit: number): Promise<Signal[]> {
+  const historyPath = path.resolve(getModelsDir(), 'signal_history_weekly.csv');
+  try {
+    const raw = await fsPromises.readFile(historyPath, 'utf8');
+    const parsed = parseSignalHistoryCsv(raw)
+      .filter((row) => row.as_of_date)
+      .sort((a, b) => String(b.as_of_date).localeCompare(String(a.as_of_date)))
+      .slice(0, limit);
+
+    return parsed.map(payloadToSignal);
+  } catch {
+    return [];
+  }
+}
+
 export async function getSignalHistory(limit = 30): Promise<Signal[]> {
+  const historyFromCsv = await loadSignalHistoryFromCsv(limit);
+  if (historyFromCsv.length > 0) {
+    return historyFromCsv;
+  }
+
   const latest = await getLatestSignal('return');
   const history: Signal[] = [];
 
@@ -158,6 +229,11 @@ export async function getSignalHistory(limit = 30): Promise<Signal[]> {
   return history;
 }
 
+export async function refreshLatestSignal(objective: Objective = 'return'): Promise<Signal> {
+  const payload = await runPythonInference(objective, ['--refresh-openbb', '--refresh-mode', 'live']);
+  return payloadToSignal(payload);
+}
+
 export async function getSignalExplanation(signalId: string): Promise<SignalExplanation> {
   const latest = await getLatestSignal('return');
 
@@ -166,31 +242,31 @@ export async function getSignalExplanation(signalId: string): Promise<SignalExpl
     confidenceBand: latest.confidenceBand,
     regimeTag: latest.probBuy >= 0.6 ? 'RiskOn' : latest.probBuy <= 0.4 ? 'RiskOff' : 'Neutral',
     thesisSummary:
-      'The engine is currently reading muted upside with stable volatility and sentiment momentum near neutral, favoring tactical exposure with predefined invalidation rules.',
+      'Signal reflects a market-regime blend of Hang Seng momentum, volatility pressure, rates drift, and HK breadth internals.',
     keyDrivers: [
       {
-        name: 'Sentiment Momentum',
-        contribution: 0.22,
+        name: 'HSI 20D Regime',
+        contribution: 0.24,
         direction: latest.probBuy > 0.5 ? 'up' : 'down',
-        narrative: 'Recent sentiment drift remains constructive but not decisive.',
+        narrative: 'Medium-horizon Hang Seng trend is the primary directional anchor in the current snapshot.',
       },
       {
-        name: '10D Volatility Regime',
-        contribution: -0.18,
+        name: 'Volatility Pressure (VIX)',
+        contribution: -0.19,
         direction: 'down',
-        narrative: 'Volatility expansion caps conviction and penalizes aggressive thresholding.',
+        narrative: 'Rising volatility regime reduces conviction and compresses upside probability.',
       },
       {
-        name: 'Return_1D Persistence',
-        contribution: 0.14,
-        direction: 'up',
-        narrative: 'Short-term return persistence adds mild upside support.',
+        name: 'HK Breadth Composite',
+        contribution: 0.13,
+        direction: latest.probBuy > 0.5 ? 'up' : 'down',
+        narrative: 'Constituent breadth quality supports or weakens index-level moves in the model state.',
       },
     ],
     invalidationTriggers: [
       'Probability(BUY) falls below 0.40 for two consecutive refreshes.',
       'Walk-forward rolling F1 drops below 0.42 across two windows.',
-      'Volatility_10D exceeds 2.5x trailing median.',
+      'HSI volatility regime breaks above 2.5x trailing median.',
     ],
   };
 }
