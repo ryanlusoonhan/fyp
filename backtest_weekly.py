@@ -16,7 +16,7 @@ from src.model import LSTMModel
 from src.utils import (
     add_triple_barrier_labels,
     create_sequences,
-    engineer_features_market_only,
+    engineer_features_primary_only,
     time_split_with_gap,
 )
 
@@ -26,7 +26,8 @@ def simulate_period_strategy(pred_class, aligned_future_ret, barrier_window, ini
     Simulate strategy on non-overlapping barrier windows.
 
     `aligned_future_ret[t]` is already a forward return over `barrier_window`, so
-    we evaluate only every `barrier_window` steps to avoid overlapping compounding.
+    we execute at most one trade per non-overlapping block to avoid overlapping compounding.
+    If multiple BUY predictions exist in a block, the first BUY signal is used.
     """
     balance = float(initial)
     bh_balance = float(initial)
@@ -34,13 +35,19 @@ def simulate_period_strategy(pred_class, aligned_future_ret, barrier_window, ini
     bh_equity = [bh_balance]
 
     step = max(1, int(barrier_window))
-    for t in range(0, len(pred_class), step):
-        action = int(pred_class[t])
-        r = float(aligned_future_ret[t])
+    for block_start in range(0, len(pred_class), step):
+        block_end = min(block_start + step, len(pred_class))
+        block_preds = pred_class[block_start:block_end]
+        block_returns = aligned_future_ret[block_start:block_end]
+        if len(block_returns) == 0:
+            continue
 
-        bh_balance = bh_balance * (1.0 + r)
+        bh_balance = bh_balance * (1.0 + float(block_returns[0]))
+        buy_positions = np.flatnonzero(block_preds == 1)
 
-        if action == 1:
+        if buy_positions.size > 0:
+            trade_idx = int(buy_positions[0])
+            r = float(block_returns[trade_idx])
             balance = balance * (1.0 - cost)
             balance = balance * (1.0 + r)
             balance = balance * (1.0 - cost)
@@ -84,8 +91,8 @@ def optimize_decision_threshold(
     cost: float = 0.001,
 ):
     objective = objective.lower()
-    if objective not in {"f1", "return"}:
-        raise ValueError("objective must be one of {'f1', 'return'}.")
+    if objective not in {"f1", "return", "accuracy"}:
+        raise ValueError("objective must be one of {'f1', 'return', 'accuracy'}.")
     if objective == "return" and aligned_future_ret is None:
         raise ValueError("aligned_future_ret is required for objective='return'.")
 
@@ -95,11 +102,19 @@ def optimize_decision_threshold(
     rows = []
     best_threshold = None
     best_score = float("-inf")
+    min_buy_rate = 0.10
+    max_buy_rate = 0.90
+    extreme_penalty = 0.25
 
     for threshold in thresholds:
         pred_class = (probs_up > float(threshold)).astype(int)
+        buy_rate = float(pred_class.mean()) if len(pred_class) else 0.0
         if objective == "f1":
             score = f1_score(y_true, pred_class, zero_division=0)
+        elif objective == "accuracy":
+            score = accuracy_score(y_true, pred_class)
+            if buy_rate < min_buy_rate or buy_rate > max_buy_rate:
+                score -= extreme_penalty
         else:
             equity, _ = simulate_period_strategy(
                 pred_class=pred_class,
@@ -114,7 +129,7 @@ def optimize_decision_threshold(
             {
                 "threshold": float(threshold),
                 "score": float(score),
-                "buy_rate": float(pred_class.mean()) if len(pred_class) else 0.0,
+                "buy_rate": buy_rate,
             }
         )
         if score > best_score:
@@ -183,7 +198,7 @@ def summarize_walk_forward(
 
 
 def backtest(
-    objective: str = "f1",
+    objective: str = "accuracy",
     threshold: float | None = None,
     test_window: int = 100,
     walk_forward_window: int = 100,
@@ -191,19 +206,22 @@ def backtest(
     cost: float = 0.001,
     data_file: str | None = None,
 ):
+    primary_candidate = f"{PROCESSED_DATA_PATH}training_data.csv"
     if data_file:
         path = data_file
+    elif os.path.exists(primary_candidate):
+        path = primary_candidate
     elif os.path.exists(OPENBB_TRAINING_FILE):
         path = OPENBB_TRAINING_FILE
     else:
-        path = f"{PROCESSED_DATA_PATH}training_data.csv"
+        path = primary_candidate
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing data file: {path}")
 
     df = pd.read_csv(path)
     if "Date" in df.columns:
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.sort_values("Date").reset_index(drop=True)
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
 
     scaler_path = f"{SCALER_PATH}feature_scaler_weekly.pkl"
     config_path = f"{MODEL_PATH}model_config_weekly.json"
@@ -221,7 +239,7 @@ def backtest(
     profit_take = float(cfg.get("profit_take", 0.03))
     stop_loss = float(cfg.get("stop_loss", 0.015))
 
-    df = engineer_features_market_only(df)
+    df = engineer_features_primary_only(df)
     df = add_triple_barrier_labels(
         df,
         barrier_window=barrier_window,
@@ -233,7 +251,7 @@ def backtest(
     if missing_cols:
         raise ValueError(
             "Feature columns in weekly config are missing from data: "
-            f"{missing_cols}. Re-run `python openbb_refresh.py --mode batch ...` then train_weekly.py."
+            f"{missing_cols}. Re-run `python train_weekly.py` to refresh hybrid features."
         )
 
     _, df_val = time_split_with_gap(df, train_split=TRAIN_SPLIT, gap=seq_len)
@@ -281,7 +299,7 @@ def backtest(
             barrier_window=barrier_window,
             cost=cost,
         )
-        score_name = "F1" if objective == "f1" else "Return"
+        score_name = "F1" if objective == "f1" else ("Accuracy" if objective == "accuracy" else "Return")
         print(f"Auto-tuned threshold ({objective} objective): {threshold:.2f} | Best {score_name}: {best_score:.4f}")
         print("Top threshold candidates:")
         top = threshold_table.sort_values("score", ascending=False).head(5)
@@ -374,8 +392,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Weekly backtest with threshold tuning and walk-forward evaluation.")
     parser.add_argument(
         "--objective",
-        choices=["f1", "return"],
-        default="f1",
+        choices=["accuracy", "f1", "return"],
+        default="accuracy",
         help="Objective for automatic threshold tuning.",
     )
     parser.add_argument(

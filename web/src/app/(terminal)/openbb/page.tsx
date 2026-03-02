@@ -77,23 +77,33 @@ export default async function OpenbbPage() {
         </Card>
 
         <Card className="space-y-4">
-          <CardTitle>Model Influence</CardTitle>
+          <CardTitle>OpenBB Usage Mode</CardTitle>
           <CardDescription className="mt-1">
-            Confirms whether current weekly model is trained from OpenBB dataset and features.
+            Shows whether OpenBB is currently used for training or only for explainability and data-health context.
           </CardDescription>
 
           <div className="space-y-3 text-sm text-slate-200">
             <div className="border border-border bg-panel-strong p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">OpenBB wired into model</p>
-              <p className="mt-1 font-semibold">{overview.modelIntegration.enabled ? 'Yes' : 'No'}</p>
+              <p className="mt-1 font-semibold">{overview.modelIntegration.enabled ? 'Yes (context mode)' : 'No'}</p>
             </div>
             <div className="border border-border bg-panel-strong p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Data source</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Primary data source</p>
               <p className="mt-1 font-semibold">{overview.modelIntegration.dataSource ?? 'unknown'}</p>
             </div>
             <div className="border border-border bg-panel-strong p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Training data file</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Secondary data source</p>
+              <p className="mt-1 font-semibold">{overview.modelIntegration.secondaryDataSource ?? 'not configured'}</p>
+            </div>
+            <div className="border border-border bg-panel-strong p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Primary data file</p>
               <p className="mt-1 font-mono text-xs text-slate-300">{overview.modelIntegration.dataFile ?? 'unknown'}</p>
+            </div>
+            <div className="border border-border bg-panel-strong p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Secondary data file</p>
+              <p className="mt-1 font-mono text-xs text-slate-300">
+                {overview.modelIntegration.secondaryDataFile ?? 'not configured'}
+              </p>
             </div>
             <div className="border border-border bg-panel-strong p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Feature set</p>
@@ -101,6 +111,9 @@ export default async function OpenbbPage() {
               <p className="mt-1 text-xs text-muted">
                 {overview.modelIntegration.openbbFeatureCount} OpenBB-driven features /{' '}
                 {overview.modelIntegration.featureCount} total
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                If OpenBB-driven features are 0, OpenBB is explainability-only in this run.
               </p>
             </div>
           </div>

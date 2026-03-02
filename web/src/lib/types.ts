@@ -1,6 +1,5 @@
 export type Classification = 'BUY' | 'NO_BUY';
-export type Objective = 'f1' | 'return';
-export type PlanId = 'free' | 'pro' | 'elite';
+export type Objective = 'accuracy' | 'f1' | 'return';
 
 export interface Signal {
   id: string;
@@ -32,6 +31,14 @@ export interface SignalExplanation {
   regimeTag: 'RiskOn' | 'RiskOff' | 'Neutral';
   invalidationTriggers: string[];
   thesisSummary: string;
+  marketContext?: {
+    trainingMode: string;
+    openbbProvider: string | null;
+    openbbStatus: string | null;
+    latestMarketDate: string | null;
+    lastRefreshAt: string | null;
+    note: string;
+  };
 }
 
 export interface WalkForwardWindow {
@@ -74,14 +81,4 @@ export interface ScenarioRunResult {
     score: number;
     buyRate: number;
   }>;
-}
-
-export interface PricingTier {
-  id: PlanId;
-  name: string;
-  priceMonthlyUsd: number;
-  description: string;
-  cta: string;
-  highlighted?: boolean;
-  features: string[];
 }

@@ -7,40 +7,42 @@ export default async function SignalsPage() {
   const history = await getSignalHistory(40);
 
   return (
-    <Card>
-      <CardTitle>Signal history</CardTitle>
-      <CardDescription className="mt-1">Recent 40 weekly outputs from the active model.</CardDescription>
+    <div className="space-y-4">
+      <Card>
+        <CardTitle>Signal history</CardTitle>
+        <CardDescription className="mt-1">Recent 40 weekly outputs from the active model.</CardDescription>
 
-      <div className="mt-5 overflow-x-auto border border-border">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-panel-strong font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-            <tr>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Signal</th>
-              <th className="px-4 py-3">Prob(BUY)</th>
-              <th className="px-4 py-3">Threshold</th>
-              <th className="px-4 py-3">Confidence</th>
-              <th className="px-4 py-3">Data</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map((signal) => (
-              <tr key={signal.id} className="border-t border-border/70 bg-panel">
-                <td className="px-4 py-3 font-mono text-xs text-slate-300">{signal.asOfDate}</td>
-                <td className="px-4 py-3">
-                  <Badge variant={signal.classification === 'BUY' ? 'positive' : 'negative'}>
-                    {signal.classification}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3 font-semibold">{toPercent(signal.probBuy, 2)}</td>
-                <td className="px-4 py-3 font-mono text-xs text-slate-300">{signal.threshold.toFixed(2)}</td>
-                <td className="px-4 py-3 capitalize text-slate-200">{signal.confidenceBand}</td>
-                <td className="px-4 py-3 font-mono text-xs uppercase text-slate-300">{signal.dataStatus ?? 'n/a'}</td>
+        <div className="mt-5 overflow-x-auto border border-border">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-panel-strong font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              <tr>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Signal</th>
+                <th className="px-4 py-3">BUY Probability</th>
+                <th className="px-4 py-3">Threshold</th>
+                <th className="px-4 py-3">Confidence</th>
+                <th className="px-4 py-3">Data</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+            </thead>
+            <tbody>
+              {history.map((signal) => (
+                <tr key={signal.id} className="border-t border-border/70 bg-panel">
+                  <td className="px-4 py-3 font-mono text-xs text-slate-300">{signal.asOfDate}</td>
+                  <td className="px-4 py-3">
+                    <Badge variant={signal.classification === 'BUY' ? 'positive' : 'negative'}>
+                      {signal.classification}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 font-semibold">{toPercent(signal.probBuy, 2)}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-300">{signal.threshold.toFixed(2)}</td>
+                  <td className="px-4 py-3 capitalize text-slate-200">{signal.confidenceBand}</td>
+                  <td className="px-4 py-3 font-mono text-xs uppercase text-slate-300">{signal.dataStatus ?? 'n/a'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
   );
 }

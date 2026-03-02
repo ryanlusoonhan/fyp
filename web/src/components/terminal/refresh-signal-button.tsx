@@ -19,16 +19,10 @@ export function RefreshSignalButton() {
     setError(null);
     setIsRefreshing(true);
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const devPlanId = process.env.NEXT_PUBLIC_DEV_PLAN_ID ?? 'elite';
-      if (process.env.NODE_ENV !== 'production') {
-        headers['x-plan-id'] = devPlanId;
-      }
-
       const response = await fetch('/api/signal/refresh', {
         method: 'POST',
-        headers,
-        body: JSON.stringify({ objective: 'return' }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objective: 'accuracy' }),
       });
       if (!response.ok) {
         const payload = (await response.json()) as { data?: { refresh?: { error?: string } } };
@@ -54,7 +48,7 @@ export function RefreshSignalButton() {
         className="w-full justify-center"
       >
         <RefreshCcw className={`mr-2 h-4 w-4 ${isPending || isRefreshing ? 'animate-spin' : ''}`} />
-        {isPending || isRefreshing ? 'Refreshing...' : 'Refresh OpenBB Data'}
+        {isPending || isRefreshing ? 'Refreshing...' : 'Refresh Signal'}
       </Button>
       {error ? <p className="text-xs text-rose-300">{error}</p> : null}
     </div>

@@ -63,7 +63,8 @@ function parseScenarioPayload(stdout: string): PythonScenarioResult {
 
 function mapScenarioResult(payload: PythonScenarioResult): ScenarioRunResult {
   return {
-    objective: payload.objective === 'f1' ? 'f1' : 'return',
+    objective:
+      payload.objective === 'accuracy' ? 'accuracy' : payload.objective === 'f1' ? 'f1' : 'return',
     bestThreshold: Number(payload.bestThreshold),
     bestScore: Number(payload.bestScore),
     candidates: (payload.candidates ?? []).map((candidate) => ({
@@ -132,5 +133,8 @@ export function buildThresholdGrid(minValue: number, maxValue: number, step: num
 }
 
 export function normalizeObjective(objectiveRaw: string | null | undefined): Objective {
+  if (objectiveRaw === 'accuracy') {
+    return 'accuracy';
+  }
   return objectiveRaw === 'f1' ? 'f1' : 'return';
 }

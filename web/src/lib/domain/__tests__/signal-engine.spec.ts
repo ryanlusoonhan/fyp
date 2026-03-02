@@ -56,6 +56,22 @@ describe('signal-engine', () => {
     expect(result.bestScore).toBeGreaterThan(0);
   });
 
+  it('optimizes threshold for accuracy objective', () => {
+    const probsUp = [0.1, 0.2, 0.45, 0.7, 0.9];
+    const yTrue = [0, 0, 0, 1, 1];
+    const thresholds = [0.3, 0.5, 0.7];
+
+    const result = optimizeDecisionThreshold({
+      objective: 'accuracy',
+      probsUp,
+      yTrue,
+      thresholds,
+    });
+
+    expect(result.bestThreshold).toBe(0.5);
+    expect(result.bestScore).toBe(1);
+  });
+
   it('throws when return objective has no returns array', () => {
     expect(() =>
       optimizeDecisionThreshold({

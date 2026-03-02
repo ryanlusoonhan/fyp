@@ -12,7 +12,7 @@ interface ScenarioLabClientProps {
 }
 
 interface ScenarioRequestPayload {
-  objective: 'f1' | 'return';
+  objective: 'accuracy' | 'f1' | 'return';
   thresholdMin: number;
   thresholdMax: number;
   step: number;
@@ -21,7 +21,7 @@ interface ScenarioRequestPayload {
 }
 
 const DEFAULT_FORM: ScenarioRequestPayload = {
-  objective: 'return',
+  objective: 'accuracy',
   thresholdMin: 0.3,
   thresholdMax: 0.7,
   step: 0.01,
@@ -40,17 +40,9 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
     setError(null);
 
     try {
-      const headers: Record<string, string> = {
-        'content-type': 'application/json',
-      };
-      const devPlanId = process.env.NEXT_PUBLIC_DEV_PLAN_ID ?? 'elite';
-      if (process.env.NODE_ENV !== 'production') {
-        headers['x-plan-id'] = devPlanId;
-      }
-
       const response = await fetch('/api/pro/scenario/run', {
         method: 'POST',
-        headers,
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(form),
       });
 
@@ -76,14 +68,17 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
     <div className="space-y-4">
       <div className="grid gap-3 border border-border bg-panel-strong p-4 md:grid-cols-2 xl:grid-cols-3">
         <label className="space-y-1 text-xs text-muted">
-          Objective
+          Optimization Goal
           <select
             value={form.objective}
-            onChange={(event) => setForm((prev) => ({ ...prev, objective: event.target.value as 'f1' | 'return' }))}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, objective: event.target.value as 'accuracy' | 'f1' | 'return' }))
+            }
             className="h-10 w-full border border-border bg-panel px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent/40"
           >
-            <option value="return">Return</option>
-            <option value="f1">F1</option>
+            <option value="accuracy">Accuracy (Recommended)</option>
+            <option value="return">Strategy Return</option>
+            <option value="f1">F1 (BUY class balance)</option>
           </select>
         </label>
         <label className="space-y-1 text-xs text-muted">
@@ -159,7 +154,9 @@ export function ScenarioLabClient({ initialResult }: ScenarioLabClientProps) {
       <div className="border border-border bg-panel-strong p-4">
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Best threshold</p>
         <p className="mt-1 font-display text-4xl">{result.bestThreshold.toFixed(2)}</p>
-        <p className="text-sm text-slate-300">Best score: {result.bestScore.toFixed(4)} ({result.objective})</p>
+        <p className="text-sm text-slate-300">
+          Best score: {result.bestScore.toFixed(4)} ({result.objective})
+        </p>
       </div>
 
       <ScenarioThresholdChart data={result.candidates} />

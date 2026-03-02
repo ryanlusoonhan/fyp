@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { parsePayloadFromStdout, parseSignalHistoryCsv } from '@/lib/data/signal-repository';
+import {
+  parseHistoryPayloadFromStdout,
+  parsePayloadFromStdout,
+  parseSignalHistoryCsv,
+} from '@/lib/data/signal-repository';
 
 describe('signal-repository', () => {
   it('parses inference payload with freshness fields', () => {
@@ -35,5 +39,40 @@ describe('signal-repository', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.probability_buy).toBeCloseTo(0.6);
     expect(rows[0]?.data_status).toBe('fresh');
+  });
+
+  it('parses historical inference payload', () => {
+    const payload = parseHistoryPayloadFromStdout(
+      JSON.stringify({
+        history: [
+          {
+            as_of_date: '2026-03-01',
+            last_close: 25000,
+            threshold: 0.46,
+            objective: 'accuracy',
+            pred_class: 1,
+            label: 'BUY',
+            probability_buy: 0.6,
+            probability_no_buy: 0.4,
+            model_version: 'best_model_weekly_binary.pth',
+          },
+          {
+            as_of_date: '2026-02-22',
+            last_close: 24920,
+            threshold: 0.46,
+            objective: 'accuracy',
+            pred_class: 0,
+            label: 'NO_BUY',
+            probability_buy: 0.43,
+            probability_no_buy: 0.57,
+            model_version: 'best_model_weekly_binary.pth',
+          },
+        ],
+      }),
+    );
+
+    expect(payload).toHaveLength(2);
+    expect(payload[0]?.as_of_date).toBe('2026-03-01');
+    expect(payload[1]?.pred_class).toBe(0);
   });
 });

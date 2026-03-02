@@ -16,7 +16,7 @@ from src.model import LSTMModel
 from src.utils import (
     add_triple_barrier_labels,
     create_sequences,
-    engineer_features_market_only,
+    engineer_features_primary_only,
     plot_training_loss,
     time_split_with_gap,
 )
@@ -67,10 +67,10 @@ def resolve_training_data_path(
             row_count = sum(1 for _ in file) - 1
         return row_count >= min_rows
 
-    if has_min_rows(openbb_path):
-        return openbb_path
     if has_min_rows(fallback_path):
         return fallback_path
+    if has_min_rows(openbb_path):
+        return openbb_path
     raise FileNotFoundError(f"Missing data file. Checked: {openbb_path}, {fallback_path}")
 
 
@@ -159,15 +159,15 @@ def train_model(model, train_loader, val_loader, device, class_weights=None, num
 if __name__ == "__main__":
     set_seed(42)
 
-    path = resolve_training_data_path()
-    data_source = "openbb_yfinance" if os.path.normpath(path) == os.path.normpath(OPENBB_TRAINING_FILE) else "legacy_local"
+    primary_path = resolve_training_data_path()
+    has_openbb_context = os.path.exists(OPENBB_TRAINING_FILE) or os.path.exists(OPENBB_NEWS_FILE)
 
-    df = pd.read_csv(path)
+    df = pd.read_csv(primary_path)
     if "Date" in df.columns:
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.sort_values("Date").reset_index(drop=True)
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
 
-    df = engineer_features_market_only(df)
+    df = engineer_features_primary_only(df)
     df = add_triple_barrier_labels(
         df,
         barrier_window=BARRIER_WINDOW,
@@ -226,10 +226,15 @@ if __name__ == "__main__":
                 "barrier_window": BARRIER_WINDOW,
                 "profit_take": PROFIT_TAKE,
                 "stop_loss": STOP_LOSS,
-                "feature_set_version": "openbb_hsi_v1",
-                "data_source": data_source,
-                "data_file": path,
+                "feature_set_version": "primary_dataset_v1",
+                "data_source": "primary_dataset",
+                "secondary_data_source": "openbb_explainability_context" if has_openbb_context else None,
+                "data_file": primary_path,
+                "data_file_primary": primary_path,
+                "data_file_secondary": None,
+                "data_file_news": OPENBB_NEWS_FILE if os.path.exists(OPENBB_NEWS_FILE) else None,
                 "default_threshold": 0.50,
+                "default_threshold_objective": "accuracy",
             },
             f,
         )

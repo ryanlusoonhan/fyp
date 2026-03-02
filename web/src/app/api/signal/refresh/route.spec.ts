@@ -14,4 +14,16 @@ describe('signal refresh route helpers', () => {
       'live',
     ]);
   });
+
+  it('builds refresh inference arguments for accuracy objective', () => {
+    const args = buildRefreshInferenceArgs('accuracy');
+    expect(args).toEqual([
+      '--objective',
+      'accuracy',
+      '--json',
+      '--refresh-openbb',
+      '--refresh-mode',
+      'live',
+    ]);
+  });
 });

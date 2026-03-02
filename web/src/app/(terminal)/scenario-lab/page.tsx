@@ -7,7 +7,7 @@ export default async function ScenarioLabPage() {
   let result: ScenarioRunResult;
   try {
     result = await runScenario({
-      objective: 'return',
+      objective: 'accuracy',
       thresholdMin: 0.3,
       thresholdMax: 0.7,
       step: 0.01,
@@ -16,7 +16,7 @@ export default async function ScenarioLabPage() {
     });
   } catch {
     result = {
-      objective: 'return',
+      objective: 'accuracy',
       bestThreshold: 0.5,
       bestScore: 0,
       candidates: [],
@@ -25,8 +25,10 @@ export default async function ScenarioLabPage() {
 
   return (
     <Card>
-      <CardTitle>Scenario lab</CardTitle>
-      <CardDescription className="mt-1">Threshold sensitivity and objective stress test.</CardDescription>
+      <CardTitle>Threshold tuning</CardTitle>
+      <CardDescription className="mt-1">
+        Test different thresholds and objectives to see how decision quality changes.
+      </CardDescription>
       <div className="mt-4">
         <ScenarioLabClient initialResult={result} />
       </div>

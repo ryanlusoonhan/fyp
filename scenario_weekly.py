@@ -13,14 +13,14 @@ from src.model import LSTMModel
 from src.utils import (
     add_triple_barrier_labels,
     create_sequences,
-    engineer_features_market_only,
+    engineer_features_primary_only,
     time_split_with_gap,
 )
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run threshold scenario analysis on weekly validation data.")
-    parser.add_argument("--objective", choices=["f1", "return"], default="return")
+    parser.add_argument("--objective", choices=["accuracy", "f1", "return"], default="accuracy")
     parser.add_argument("--threshold-min", type=float, default=0.30)
     parser.add_argument("--threshold-max", type=float, default=0.70)
     parser.add_argument("--step", type=float, default=0.01)
@@ -34,9 +34,9 @@ def parse_args():
 def resolve_data_path(config_data_file: str | None, override_data_file: str | None) -> str:
     candidates = [
         override_data_file,
+        f"{PROCESSED_DATA_PATH}training_data.csv",
         config_data_file,
         OPENBB_TRAINING_FILE,
-        f"{PROCESSED_DATA_PATH}training_data.csv",
     ]
     for candidate in candidates:
         if candidate and os.path.exists(candidate):
@@ -79,10 +79,10 @@ def run_scenario(args) -> dict:
     data_path = resolve_data_path(cfg.get("data_file"), args.data_file)
     df = pd.read_csv(data_path)
     if "Date" in df.columns:
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.sort_values("Date").reset_index(drop=True)
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
 
-    df = engineer_features_market_only(df)
+    df = engineer_features_primary_only(df)
     df = add_triple_barrier_labels(
         df,
         barrier_window=barrier_window,

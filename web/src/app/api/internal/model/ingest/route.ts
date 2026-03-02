@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   }
 
   const [signal, summary, windows] = await Promise.all([
-    getLatestSignal('return'),
+    getLatestSignal('accuracy'),
     getPerformanceSummary(),
     getWalkForwardWindows(),
   ]);

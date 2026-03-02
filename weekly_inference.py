@@ -2,7 +2,7 @@ import argparse
 import csv
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import joblib
 import numpy as np
@@ -17,7 +17,7 @@ from src.model import LSTMModel
 from src.utils import (
     add_triple_barrier_labels,
     create_sequences,
-    engineer_features_market_only,
+    engineer_features_primary_only,
     time_split_with_gap,
 )
 
@@ -46,24 +46,32 @@ def resolve_inference_data_path(
             return True
         try:
             sample_df = pd.read_csv(path_candidate)
-            engineered = engineer_features_market_only(sample_df)
+            engineered = engineer_features_primary_only(sample_df)
         except Exception:
             return False
         return required.issubset(set(engineered.columns))
 
     candidates = [
+        f"{PROCESSED_DATA_PATH}training_data.csv",
         config_data_file,
         OPENBB_TRAINING_FILE,
-        f"{PROCESSED_DATA_PATH}training_data.csv",
     ]
+    deduped_candidates: list[str] = []
     for candidate in candidates:
+        if not candidate:
+            continue
+        if candidate in deduped_candidates:
+            continue
+        deduped_candidates.append(candidate)
+
+    for candidate in deduped_candidates:
         if has_min_rows(candidate):
             if required and not supports_required_features(candidate):
                 continue
             return candidate
     raise FileNotFoundError(
         "No dataset file found for inference. "
-        f"Checked: {[c for c in candidates if c]}"
+        f"Checked: {deduped_candidates}"
     )
 
 
@@ -117,7 +125,7 @@ def upsert_signal_history(payload: dict, history_path: str = SIGNAL_HISTORY_FILE
         "data_status": payload.get("data_status"),
         "last_refresh_at": payload.get("last_refresh_at"),
         "latest_market_date": payload.get("latest_market_date"),
-        "logged_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "logged_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     os.makedirs(os.path.dirname(history_path), exist_ok=True)
     fieldnames = list(row.keys())
@@ -188,12 +196,82 @@ def infer_threshold_from_validation(
     )
 
 
+def infer_probability_from_window(
+    window_df: pd.DataFrame,
+    scaler,
+    model,
+    feature_cols: list[str],
+) -> float:
+    window_scaled = scaler.transform(window_df[feature_cols].values)
+    with torch.no_grad():
+        xb = torch.tensor(window_scaled, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        logits = model(xb)
+        probs = F.softmax(logits, dim=1).cpu().numpy().flatten()
+    return float(probs[1])
+
+
+def build_historical_payloads(
+    feature_df: pd.DataFrame,
+    scaler,
+    model,
+    feature_cols: list[str],
+    seq_len: int,
+    threshold: float,
+    objective: str,
+    model_version: str,
+    data_status: str | None,
+    last_refresh_at: str | None,
+    latest_market_date: str | None,
+    data_provider: str | None,
+    limit: int,
+) -> list[dict]:
+    if limit <= 0 or len(feature_df) < seq_len:
+        return []
+
+    max_idx = len(feature_df) - 1
+    first_idx = max(seq_len - 1, max_idx - limit + 1)
+    rows: list[dict] = []
+
+    for idx in range(max_idx, first_idx - 1, -1):
+        recent = feature_df.iloc[idx - seq_len + 1 : idx + 1]
+        prob_buy = infer_probability_from_window(
+            window_df=recent,
+            scaler=scaler,
+            model=model,
+            feature_cols=feature_cols,
+        )
+        pred_class, label = classify_weekly_signal(prob_buy=prob_buy, threshold=threshold)
+
+        last_date = recent["Date"].iloc[-1] if "Date" in recent.columns else None
+        as_of_date = pd.Timestamp(last_date).date().isoformat() if last_date is not None else None
+        last_close = float(recent["Close"].iloc[-1]) if "Close" in recent.columns else None
+
+        rows.append(
+            build_signal_payload(
+                as_of_date=as_of_date,
+                last_close=last_close,
+                threshold=threshold,
+                objective=objective,
+                pred_class=pred_class,
+                label=label,
+                probability_buy=prob_buy,
+                model_version=model_version,
+                data_status=data_status,
+                last_refresh_at=last_refresh_at,
+                latest_market_date=latest_market_date,
+                data_provider=data_provider,
+            )
+        )
+
+    return rows
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Latest weekly BUY/NO_BUY signal inference.")
     parser.add_argument(
         "--objective",
-        choices=["f1", "return"],
-        default="f1",
+        choices=["accuracy", "f1", "return"],
+        default="accuracy",
         help="Objective for automatic threshold tuning when --threshold is omitted.",
     )
     parser.add_argument(
@@ -237,6 +315,12 @@ def parse_args():
         default=True,
         help="Whether to persist this inference result in models/signal_history_weekly.csv.",
     )
+    parser.add_argument(
+        "--history-limit",
+        type=int,
+        default=0,
+        help="If > 0, return the latest N historical weekly signals instead of only one.",
+    )
     return parser.parse_args()
 
 
@@ -275,10 +359,9 @@ if __name__ == "__main__":
     data_path = resolve_inference_data_path(cfg.get("data_file"), required_columns=feature_cols)
     raw_df = pd.read_csv(data_path)
     if "Date" in raw_df.columns:
-        raw_df["Date"] = pd.to_datetime(raw_df["Date"])
-        raw_df = raw_df.sort_values("Date").reset_index(drop=True)
-
-    feature_df = engineer_features_market_only(raw_df)
+        raw_df["Date"] = pd.to_datetime(raw_df["Date"], errors="coerce")
+        raw_df = raw_df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+    feature_df = engineer_features_primary_only(raw_df)
     missing_cols = [c for c in feature_cols if c not in feature_df.columns]
     if missing_cols:
         raise ValueError(
@@ -312,7 +395,7 @@ if __name__ == "__main__":
                 objective=args.objective,
                 cost=args.cost,
             )
-            metric_name = "F1" if args.objective == "f1" else "Return"
+            metric_name = "F1" if args.objective == "f1" else ("Accuracy" if args.objective == "accuracy" else "Return")
             if not args.json_output:
                 print(
                     f"Auto-tuned threshold ({args.objective} objective): "
@@ -331,17 +414,46 @@ if __name__ == "__main__":
         if not args.json_output:
             print(f"Using manual threshold: {threshold:.2f}")
 
+    model_version = os.path.basename(model_path)
+    status = load_refresh_status()
+
+    if args.history_limit > 0:
+        history_payloads = build_historical_payloads(
+            feature_df=feature_df,
+            scaler=scaler,
+            model=model,
+            feature_cols=feature_cols,
+            seq_len=seq_len,
+            threshold=threshold,
+            objective=args.objective,
+            model_version=model_version,
+            data_status=status.get("data_status"),
+            last_refresh_at=status.get("last_refresh_at"),
+            latest_market_date=status.get("latest_market_date"),
+            data_provider=status.get("provider"),
+            limit=args.history_limit,
+        )
+
+        if args.append_history:
+            for row in reversed(history_payloads):
+                upsert_signal_history(row)
+
+        if args.json_output:
+            print(json.dumps({"history": history_payloads}))
+        else:
+            print(f"Generated {len(history_payloads)} historical signals.")
+        raise SystemExit(0)
+
     recent = feature_df.tail(seq_len).copy()
     if len(recent) < seq_len:
         raise ValueError(f"Not enough rows for inference. Need {seq_len}, got {len(recent)}.")
 
-    recent_scaled = scaler.transform(recent[feature_cols].values)
-    with torch.no_grad():
-        xb = torch.tensor(recent_scaled, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-        logits = model(xb)
-        probs = F.softmax(logits, dim=1).cpu().numpy().flatten()
-
-    prob_buy = float(probs[1])
+    prob_buy = infer_probability_from_window(
+        window_df=recent,
+        scaler=scaler,
+        model=model,
+        feature_cols=feature_cols,
+    )
     pred_class, label = classify_weekly_signal(prob_buy=prob_buy, threshold=threshold)
     prob_no_buy = 1.0 - prob_buy
 
@@ -349,8 +461,6 @@ if __name__ == "__main__":
     last_close = float(recent["Close"].iloc[-1]) if "Close" in recent.columns else None
 
     as_of_date = pd.Timestamp(last_date).date().isoformat() if last_date is not None else None
-    model_version = os.path.basename(model_path)
-    status = load_refresh_status()
     payload = build_signal_payload(
         as_of_date=as_of_date,
         last_close=last_close,

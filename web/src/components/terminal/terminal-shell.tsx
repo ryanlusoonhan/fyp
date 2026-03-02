@@ -2,7 +2,6 @@ import Link from 'next/link';
 import {
   Activity,
   CandlestickChart,
-  CreditCard,
   Database,
   Gauge,
   Network,
@@ -15,13 +14,12 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Overview', icon: Gauge },
-  { href: '/signals', label: 'Signals', icon: CandlestickChart },
-  { href: '/explainability', label: 'Explainability', icon: ShieldCheck },
-  { href: '/scenario-lab', label: 'Scenario Lab', icon: SlidersHorizontal },
-  { href: '/walk-forward', label: 'Walk-Forward', icon: Network },
-  { href: '/openbb', label: 'OpenBB', icon: Database },
-  { href: '/pricing', label: 'Pricing', icon: CreditCard },
+  { href: '/dashboard', label: 'Home', icon: Gauge, help: 'Latest recommendation and key health metrics.' },
+  { href: '/signals', label: 'Signal Log', icon: CandlestickChart, help: 'Historical weekly BUY/NO_BUY outputs.' },
+  { href: '/explainability', label: 'Why This Signal', icon: ShieldCheck, help: 'Main drivers and validity checks.' },
+  { href: '/scenario-lab', label: 'Threshold Tuning', icon: SlidersHorizontal, help: 'Find suitable decision threshold.' },
+  { href: '/walk-forward', label: 'Model Health', icon: Network, help: 'Stability across rolling windows.' },
+  { href: '/openbb', label: 'Market Data', icon: Database, help: 'OpenBB context and data freshness.' },
 ] as const;
 
 export function TerminalShell({ pathname, children }: { pathname: string; children: ReactNode }) {
@@ -57,9 +55,12 @@ export function TerminalShell({ pathname, children }: { pathname: string; childr
                       : 'border-transparent text-muted hover:border-border hover:bg-panel-strong hover:text-foreground',
                   )}
                 >
-                  <span className="flex items-center gap-2.5">
-                    <Icon className="h-4 w-4" />
-                    {item.label}
+                  <span className="flex min-w-0 items-start gap-2.5">
+                    <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block">{item.label}</span>
+                      <span className="block truncate text-[11px] text-muted">{item.help}</span>
+                    </span>
                   </span>
                   <span className={cn('h-1.5 w-1.5 rounded-full bg-transparent', active && 'status-blink bg-accent')} />
                 </Link>
@@ -73,10 +74,19 @@ export function TerminalShell({ pathname, children }: { pathname: string; childr
               <Badge variant="positive">live</Badge>
             </div>
             <div className="mt-2 space-y-1 font-mono text-[11px] text-muted">
-              <p>Objective: return</p>
+              <p>Objective: accuracy</p>
               <p>Refresh: daily 09:00 HKT</p>
               <p>Market: HSI</p>
             </div>
+          </div>
+
+          <div className="mt-3 border border-border bg-panel-strong p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Quick usage</p>
+            <ol className="mt-2 space-y-1 text-xs text-slate-200">
+              <li>1. Open Home and read latest recommendation.</li>
+              <li>2. Check Model Health before acting.</li>
+              <li>3. Use Threshold Tuning if behavior drifts.</li>
+            </ol>
           </div>
         </aside>
 
@@ -88,7 +98,7 @@ export function TerminalShell({ pathname, children }: { pathname: string; childr
                 <p className="mt-1 font-display text-2xl">{activeItem?.label ?? 'Overview'}</p>
               </div>
               <div className="border border-border bg-panel-strong px-3 py-2 font-mono text-[11px] text-muted">
-                Dev tier simulation: set `NEXT_PUBLIC_DEV_PLAN_ID`
+                Internal HSI analytics tool
               </div>
             </div>
           </header>

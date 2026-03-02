@@ -10,23 +10,23 @@ import { getPerformanceSummary, getWalkForwardWindows } from '@/lib/data/walk-fo
 import { toPercent, toSignedPercent } from '@/lib/utils';
 
 function buildEquitySeries(windows: Awaited<ReturnType<typeof getWalkForwardWindows>>) {
-  let ai = 10_000;
-  let benchmark = 10_000;
+  let aiIndex = 100;
+  let benchmarkIndex = 100;
 
   return windows.map((window) => {
-    ai *= 1 + window.aiReturnPct / 100;
-    benchmark *= 1 + window.buyHoldReturnPct / 100;
+    aiIndex *= 1 + window.aiReturnPct / 100;
+    benchmarkIndex *= 1 + window.buyHoldReturnPct / 100;
     return {
       label: `W${window.windowId}`,
-      ai,
-      benchmark,
+      aiIndex,
+      benchmarkIndex,
     };
   });
 }
 
 export default async function DashboardPage() {
   const [signal, summary, windows] = await Promise.all([
-    getLatestSignal('return'),
+    getLatestSignal('accuracy'),
     getPerformanceSummary(),
     getWalkForwardWindows(),
   ]);
@@ -39,43 +39,45 @@ export default async function DashboardPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          label="Accuracy"
+          label="Model accuracy"
           value={toPercent(summary.latestAccuracy)}
-          hint="Last 100 periods"
+          hint="Correct direction rate in latest 100 periods"
           icon={<Activity className="h-4 w-4" />}
         />
         <KpiCard
-          label="F1"
+          label="BUY F1 score"
           value={summary.latestF1.toFixed(3)}
-          hint="BUY class quality"
+          hint="Harmonic mean of BUY precision and recall"
           icon={<GaugeCircle className="h-4 w-4" />}
         />
         <KpiCard
-          label="AI Return"
+          label="Model strategy return"
           value={toSignedPercent(summary.latestAiReturnPct)}
-          hint={`vs B&H ${toSignedPercent(summary.latestBuyHoldReturnPct)}`}
+          hint={`Compared with buy-and-hold ${toSignedPercent(summary.latestBuyHoldReturnPct)}`}
           icon={<TrendingUp className="h-4 w-4" />}
         />
         <KpiCard
-          label="Windows"
+          label="Validation windows"
           value={String(windows.length)}
-          hint="Walk-forward slices"
+          hint="Walk-forward evaluation slices"
           icon={<Layers3 className="h-4 w-4" />}
         />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
         <Card>
-          <CardTitle>Equity curve</CardTitle>
-          <CardDescription className="mt-1">Compounded strategy return vs buy-and-hold.</CardDescription>
+          <CardTitle>Performance over time</CardTitle>
+          <CardDescription className="mt-1">
+            Compounded model strategy vs buy-and-hold across walk-forward windows (both indexed to 100).
+          </CardDescription>
           <div className="mt-4">
             <EquityCurveChart data={equitySeries} />
           </div>
         </Card>
 
         <Card className="space-y-4">
-          <CardTitle>Data reliability</CardTitle>
-          <CardDescription>Operational controls and freshness state.</CardDescription>
+          <CardTitle>Data status and refresh</CardTitle>
+          <CardDescription>Shows whether market context is fresh and when the latest pull ran.</CardDescription>
 
           <div className="space-y-3 text-sm text-slate-200">
             <div className="border border-border bg-panel-strong p-3">

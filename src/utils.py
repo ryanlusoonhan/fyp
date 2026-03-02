@@ -22,6 +22,21 @@ def engineer_features_past_only(df: pd.DataFrame, sentiment_window: int = 7) -> 
     return df
 
 
+def engineer_features_primary_only(df: pd.DataFrame, sentiment_window: int = 7) -> pd.DataFrame:
+    out = engineer_features_past_only(df, sentiment_window=sentiment_window)
+
+    if "sentiment_score" not in out.columns:
+        out["sentiment_score"] = 0.0
+
+    for col in ["Sentiment_MA7", "Sentiment_Momentum", "Return_1D", "Volatility_10D"]:
+        if col not in out.columns:
+            out[col] = 0.0
+
+    num_cols = out.select_dtypes(include=[np.number]).columns
+    out[num_cols] = out[num_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    return out
+
+
 def engineer_features_market_only(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
@@ -70,6 +85,41 @@ def engineer_features_market_only(df: pd.DataFrame) -> pd.DataFrame:
     # Keep legacy aliases for compatibility with existing scripts/UI copy.
     df["Return_1D"] = df["HSI_Return_1D"]
     df["Volatility_10D"] = df["HSI_Volatility_10D"]
+
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    df[num_cols] = df[num_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    return df
+
+
+def engineer_features_hybrid(df: pd.DataFrame, sentiment_window: int = 7) -> pd.DataFrame:
+    df = engineer_features_market_only(df)
+
+    professor_sent = pd.to_numeric(
+        df.get("sentiment_score", pd.Series(0.0, index=df.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    openbb_sent = pd.to_numeric(
+        df.get("OpenBB_News_Sentiment", pd.Series(0.0, index=df.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    openbb_count = pd.to_numeric(
+        df.get("OpenBB_News_Article_Count", pd.Series(0.0, index=df.index)),
+        errors="coerce",
+    ).fillna(0.0)
+
+    # OpenBB sentiment is secondary: cap influence to 35% even when article volume is high.
+    openbb_weight = np.clip(openbb_count / 5.0, 0.0, 0.35)
+    blended_sent = (1.0 - openbb_weight) * professor_sent + openbb_weight * openbb_sent
+
+    df["Sentiment_Professor"] = professor_sent
+    df["Sentiment_OpenBB"] = openbb_sent
+    df["Sentiment_Blend_Weight"] = openbb_weight
+    df["Sentiment_Blend"] = blended_sent
+    df["Sentiment_MA7"] = blended_sent.rolling(window=sentiment_window, min_periods=1).mean()
+    df["Sentiment_Momentum"] = blended_sent - df["Sentiment_MA7"]
+    df["Sentiment_Divergence"] = openbb_sent - professor_sent
+    df["OpenBB_News_Article_Count"] = openbb_count
+    df["OpenBB_News_Availability"] = (openbb_count > 0).astype(float)
 
     num_cols = df.select_dtypes(include=[np.number]).columns
     df[num_cols] = df[num_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)

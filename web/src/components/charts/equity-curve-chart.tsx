@@ -13,8 +13,8 @@ import {
 
 interface Point {
   label: string;
-  ai: number;
-  benchmark: number;
+  aiIndex: number;
+  benchmarkIndex: number;
 }
 
 interface EquityCurveChartProps {
@@ -53,7 +53,7 @@ export function EquityCurveChart({ data }: EquityCurveChartProps) {
             tickLine={false}
             axisLine={false}
             width={56}
-            tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+            tickFormatter={(value) => value.toFixed(0)}
           />
           <Tooltip
             contentStyle={{
@@ -62,8 +62,8 @@ export function EquityCurveChart({ data }: EquityCurveChartProps) {
               borderRadius: 12,
             }}
           />
-          <Area type="monotone" dataKey="benchmark" stroke="#6fa8ff" fill="url(#benchmarkFill)" strokeWidth={2} />
-          <Area type="monotone" dataKey="ai" stroke="#f5a524" fill="url(#aiFill)" strokeWidth={2.5} />
+          <Area type="monotone" dataKey="benchmarkIndex" stroke="#6fa8ff" fill="url(#benchmarkFill)" strokeWidth={2} name="B&H Index" />
+          <Area type="monotone" dataKey="aiIndex" stroke="#f5a524" fill="url(#aiFill)" strokeWidth={2.5} name="AI Index" />
         </AreaChart>
       </ResponsiveContainer>
     </div>

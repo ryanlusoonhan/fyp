@@ -1,15 +1,15 @@
-# Stock Prediction Interface (Web MVP)
+# Stock Prediction Interface (Web)
 
 Next.js full-stack product layer for the weekly HSI signal engine.
 
 ## What this app does
 
-- Public landing + pricing experience
+- Internal landing + analytics experience
 - Terminal-style dashboard for signal operations
 - APIs for:
-  - public preview (`/api/public/*`)
-  - pro/elite intelligence (`/api/pro/*`)
-  - billing checkout + portal (`/api/billing/*`)
+  - public/informational endpoints (`/api/public/*`)
+  - analytics endpoints (`/api/pro/*`)
+  - disabled billing compatibility endpoints (`/api/billing/*`)
   - internal model ingest (`/api/internal/model/ingest`)
 
 ## Prerequisites
@@ -53,16 +53,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - `PYTHON_BIN` - override Python executable used to run `weekly_inference.py`
 - `NELL_REPO_ROOT` - absolute path to the root Python/model repo
 
-### Stripe (for live billing)
-
-- `STRIPE_SECRET_KEY`
-- `STRIPE_PRICE_PRO_MONTHLY`
-- `STRIPE_PRICE_PRO_ANNUAL`
-- `STRIPE_PRICE_ELITE_MONTHLY`
-- `STRIPE_PRICE_ELITE_ANNUAL`
-
-If missing, checkout endpoints run in safe stub mode.
-
 ### Supabase (for auth + persistence)
 
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -73,15 +63,9 @@ If missing, checkout endpoints run in safe stub mode.
 
 - `INTERNAL_INGEST_TOKEN` (required for `/api/internal/model/ingest`)
 
-## Plan simulation in local
+## Access model
 
-Use a request header to simulate entitlements quickly:
-
-- `x-plan-id: free`
-- `x-plan-id: pro`
-- `x-plan-id: elite`
-
-You can also use bearer dev tokens (`Authorization: Bearer plan:pro`).
+This is an internal analytics deployment. Feature-tier gating is disabled in API routes.
 
 ## Verification commands
 

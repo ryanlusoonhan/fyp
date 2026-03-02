@@ -1,4 +1,4 @@
-export type Objective = 'f1' | 'return';
+export type Objective = 'accuracy' | 'f1' | 'return';
 
 export type ConfidenceBand = 'low' | 'medium' | 'high';
 
@@ -73,6 +73,19 @@ function f1Score(yTrue: number[], yPred: number[]): number {
   return (2 * precision * recall) / (precision + recall);
 }
 
+function accuracyScore(yTrue: number[], yPred: number[]): number {
+  if (yTrue.length === 0) {
+    return 0;
+  }
+  let correct = 0;
+  for (let i = 0; i < yTrue.length; i += 1) {
+    if ((yTrue[i] ?? 0) === (yPred[i] ?? 0)) {
+      correct += 1;
+    }
+  }
+  return correct / yTrue.length;
+}
+
 function simulateStrategyReturn(
   predClass: number[],
   alignedFutureReturns: number[],
@@ -125,6 +138,8 @@ export function optimizeDecisionThreshold(input: OptimizeThresholdInput): Optimi
     const score =
       objective === 'f1'
         ? f1Score(yTrue, predClass)
+        : objective === 'accuracy'
+          ? accuracyScore(yTrue, predClass)
         : simulateStrategyReturn(predClass, alignedFutureReturns ?? [], barrierWindow, cost);
 
     if (score > bestScore) {

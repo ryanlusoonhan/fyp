@@ -10,6 +10,12 @@ from src.dataset import StockDataset
 
 
 class TestDirectionalPipeline(unittest.TestCase):
+    @staticmethod
+    def _write_minimal_rows(path: pathlib.Path, row_count: int) -> None:
+        rows = ["Date,Close"]
+        rows.extend([f"2026-01-{(idx % 28) + 1:02d},{100 + idx}" for idx in range(row_count)])
+        path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
     def test_stock_dataset_emits_long_labels_for_classification(self):
         X = np.random.randn(8, 4, 3).astype(np.float32)
         y = np.array([0, 1, 1, 0, 1, 0, 0, 1], dtype=np.int64)
@@ -22,7 +28,7 @@ class TestDirectionalPipeline(unittest.TestCase):
         expected = {"Future_Close", "Future_Return", "Target_Class", "Recalculated_Target"}
         self.assertTrue(expected.issubset(train_mod.EXCLUDE_COLS))
 
-    def test_weekly_strategy_simulation_uses_non_overlapping_periods_and_cash_is_flat(self):
+    def test_weekly_strategy_simulation_uses_first_buy_signal_within_each_non_overlapping_period(self):
         weekly_mod = importlib.import_module("backtest_weekly")
 
         pred_class = np.array([0, 1, 1, 0, 1, 0], dtype=np.int64)
@@ -36,10 +42,11 @@ class TestDirectionalPipeline(unittest.TestCase):
             cost=0.0,
         )
 
-        # Non-overlapping with barrier_window=2 means indices [0, 2, 4]
-        # AI actions at those indices are [0, 1, 1] so:
-        # start 100 -> cash(unchanged) -> *1.20 -> *0.98 = 117.6
-        self.assertAlmostEqual(equity[-1], 117.6, places=6)
+        # Non-overlapping with barrier_window=2 creates blocks [0,1], [2,3], [4,5].
+        # AI executes at first BUY in each block using that row's return:
+        # block1: BUY at idx1 -> -5%, block2: BUY at idx2 -> +20%, block3: BUY at idx4 -> -2%
+        # start 100 -> 95 -> 114 -> 111.72
+        self.assertAlmostEqual(equity[-1], 111.72, places=6)
 
         # Buy & hold over same non-overlapping periods: 100 * 1.10 * 1.20 * 0.98
         self.assertAlmostEqual(bh_equity[-1], 129.36, places=6)
@@ -100,6 +107,26 @@ class TestDirectionalPipeline(unittest.TestCase):
         self.assertAlmostEqual(best_threshold, 0.55, places=8)
         self.assertGreater(best_score, 0.0)
 
+    def test_threshold_optimizer_selects_best_accuracy_threshold(self):
+        weekly_mod = importlib.import_module("backtest_weekly")
+
+        probs_up = np.array([0.15, 0.25, 0.45, 0.65, 0.85], dtype=np.float64)
+        y_true = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        thresholds = np.array([0.30, 0.50, 0.70], dtype=np.float64)
+
+        best_threshold, best_score, _ = weekly_mod.optimize_decision_threshold(
+            probs_up=probs_up,
+            y_true=y_true,
+            objective="accuracy",
+            thresholds=thresholds,
+            aligned_future_ret=None,
+            barrier_window=1,
+            cost=0.0,
+        )
+
+        self.assertAlmostEqual(best_threshold, 0.50, places=8)
+        self.assertAlmostEqual(best_score, 1.0, places=8)
+
     def test_walk_forward_slice_builder_creates_expected_windows(self):
         weekly_mod = importlib.import_module("backtest_weekly")
 
@@ -122,13 +149,14 @@ class TestDirectionalPipeline(unittest.TestCase):
         self.assertEqual(pred_class, 0)
         self.assertEqual(label, "NO_BUY")
 
-    def test_train_weekly_resolves_openbb_dataset_with_fallback(self):
+    def test_train_weekly_prefers_primary_dataset_even_when_openbb_exists(self):
         train_weekly = importlib.import_module("train_weekly")
 
         with tempfile.TemporaryDirectory() as tmp:
             openbb_file = pathlib.Path(tmp) / "training_data_openbb.csv"
             legacy_file = pathlib.Path(tmp) / "training_data.csv"
             legacy_file.write_text("Date,Close\n2026-01-01,1\n", encoding="utf-8")
+            openbb_file.write_text("Date,Close\n2026-01-01,2\n", encoding="utf-8")
 
             selected = train_weekly.resolve_training_data_path(
                 openbb_path=str(openbb_file),
@@ -137,13 +165,57 @@ class TestDirectionalPipeline(unittest.TestCase):
             )
             self.assertEqual(selected, str(legacy_file))
 
-            openbb_file.write_text("Date,Close\n2026-01-01,1\n", encoding="utf-8")
-            selected = train_weekly.resolve_training_data_path(
-                openbb_path=str(openbb_file),
-                fallback_path=str(legacy_file),
-                min_rows=1,
-            )
-            self.assertEqual(selected, str(openbb_file))
+    def test_weekly_inference_prefers_primary_dataset_even_if_config_points_to_openbb(self):
+        weekly_inference = importlib.import_module("weekly_inference")
+
+        original_openbb = weekly_inference.OPENBB_TRAINING_FILE
+        original_processed = weekly_inference.PROCESSED_DATA_PATH
+
+        with tempfile.TemporaryDirectory() as tmp:
+            openbb_file = pathlib.Path(tmp) / "training_data_openbb.csv"
+            primary_file = pathlib.Path(tmp) / "training_data.csv"
+            self._write_minimal_rows(primary_file, 40)
+            openbb_rows = ["Date,Close,VIX_Close"]
+            openbb_rows.extend([f"2026-01-{(idx % 28) + 1:02d},{100 + idx},{20 + idx * 0.1:.2f}" for idx in range(40)])
+            openbb_file.write_text("\n".join(openbb_rows) + "\n", encoding="utf-8")
+
+            weekly_inference.OPENBB_TRAINING_FILE = str(openbb_file)
+            weekly_inference.PROCESSED_DATA_PATH = f"{tmp}/"
+            try:
+                selected = weekly_inference.resolve_inference_data_path(
+                    config_data_file=str(openbb_file),
+                    required_columns=["Sentiment_MA7"],
+                )
+            finally:
+                weekly_inference.OPENBB_TRAINING_FILE = original_openbb
+                weekly_inference.PROCESSED_DATA_PATH = original_processed
+
+            self.assertEqual(selected, str(primary_file))
+
+    def test_scenario_prefers_primary_dataset_even_if_config_points_to_openbb(self):
+        scenario_weekly = importlib.import_module("scenario_weekly")
+
+        original_openbb = scenario_weekly.OPENBB_TRAINING_FILE
+        original_processed = scenario_weekly.PROCESSED_DATA_PATH
+
+        with tempfile.TemporaryDirectory() as tmp:
+            openbb_file = pathlib.Path(tmp) / "training_data_openbb.csv"
+            primary_file = pathlib.Path(tmp) / "training_data.csv"
+            self._write_minimal_rows(openbb_file, 40)
+            self._write_minimal_rows(primary_file, 40)
+
+            scenario_weekly.OPENBB_TRAINING_FILE = str(openbb_file)
+            scenario_weekly.PROCESSED_DATA_PATH = f"{tmp}/"
+            try:
+                selected = scenario_weekly.resolve_data_path(
+                    config_data_file=str(openbb_file),
+                    override_data_file=None,
+                )
+            finally:
+                scenario_weekly.OPENBB_TRAINING_FILE = original_openbb
+                scenario_weekly.PROCESSED_DATA_PATH = original_processed
+
+            self.assertEqual(selected, str(primary_file))
 
     def test_weekly_inference_payload_remains_backward_compatible(self):
         weekly_inference = importlib.import_module("weekly_inference")

@@ -28,7 +28,10 @@ interface OpenbbManifestFile {
 
 interface WeeklyModelConfigFile {
   data_source?: string;
+  secondary_data_source?: string;
   data_file?: string;
+  data_file_primary?: string;
+  data_file_secondary?: string;
   feature_set_version?: string;
   feature_cols?: string[];
 }
@@ -54,7 +57,9 @@ export interface OpenbbOverview {
   modelIntegration: {
     enabled: boolean;
     dataSource: string | null;
+    secondaryDataSource: string | null;
     dataFile: string | null;
+    secondaryDataFile: string | null;
     featureSetVersion: string | null;
     featureCount: number;
     openbbFeatureCount: number;
@@ -88,7 +93,7 @@ async function countCsvRows(filePath: string): Promise<number | null> {
 }
 
 function countOpenbbFeatures(featureCols: string[]): number {
-  const prefixes = ['VIX_', 'TNX_', 'GSPC_', 'USDHKD_', 'USDCNY_', 'HK_Breadth_'];
+  const prefixes = ['VIX_', 'TNX_', 'GSPC_', 'USDHKD_', 'USDCNY_', 'HK_Breadth_', 'OpenBB_'];
   return featureCols.filter((col) => prefixes.some((prefix) => col.startsWith(prefix))).length;
 }
 
@@ -105,11 +110,12 @@ export async function getOpenbbOverview(): Promise<OpenbbOverview> {
   ]);
 
   const snapshots = [
+    { name: 'Primary Training Dataset', path: path.resolve(repoRoot, 'data', 'processed', 'training_data.csv') },
     { name: 'Index History', path: path.resolve(repoRoot, 'data', 'raw', 'openbb', 'index_history.csv') },
     { name: 'Equity History', path: path.resolve(repoRoot, 'data', 'raw', 'openbb', 'equity_history.csv') },
     { name: 'Currency History', path: path.resolve(repoRoot, 'data', 'raw', 'openbb', 'currency_history.csv') },
     { name: 'Recent News', path: path.resolve(repoRoot, 'data', 'raw', 'openbb', 'news_recent.csv') },
-    { name: 'Training Dataset', path: path.resolve(repoRoot, 'data', 'processed', 'training_data_openbb.csv') },
+    { name: 'OpenBB Secondary Dataset', path: path.resolve(repoRoot, 'data', 'processed', 'training_data_openbb.csv') },
   ];
 
   const snapshotRows = await Promise.all(
@@ -123,12 +129,17 @@ export async function getOpenbbOverview(): Promise<OpenbbOverview> {
   const featureCols = modelConfig?.feature_cols ?? [];
   const openbbFeatureCount = countOpenbbFeatures(featureCols);
   const dataSource = modelConfig?.data_source ?? null;
-  const dataFile = modelConfig?.data_file ?? null;
+  const secondaryDataSource = modelConfig?.secondary_data_source ?? null;
+  const dataFile = modelConfig?.data_file_primary ?? modelConfig?.data_file ?? null;
+  const secondaryDataFile = modelConfig?.data_file_secondary ?? null;
+  const enabledBySource = [dataSource, secondaryDataSource].some(
+    (source) => typeof source === 'string' && source.toLowerCase().includes('openbb'),
+  );
+  const enabledByFile = [modelConfig?.data_file, dataFile, secondaryDataFile].some(
+    (file) => typeof file === 'string' && file.includes('training_data_openbb.csv'),
+  );
   const enabled =
-    typeof dataSource === 'string' &&
-    dataSource.includes('openbb') &&
-    typeof dataFile === 'string' &&
-    dataFile.includes('training_data_openbb.csv');
+    enabledBySource || enabledByFile || openbbFeatureCount > 0;
 
   return {
     source: {
@@ -147,7 +158,9 @@ export async function getOpenbbOverview(): Promise<OpenbbOverview> {
     modelIntegration: {
       enabled,
       dataSource,
+      secondaryDataSource,
       dataFile,
+      secondaryDataFile,
       featureSetVersion: modelConfig?.feature_set_version ?? null,
       featureCount: featureCols.length,
       openbbFeatureCount,

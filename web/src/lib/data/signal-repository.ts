@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { classifySignal } from '@/lib/domain/signal-engine';
 import type { Objective, Signal, SignalExplanation } from '@/lib/types';
+import { getOpenbbOverview } from '@/lib/data/openbb-repository';
 import { getModelsDir, getRepoRoot } from '@/lib/runtime/paths';
 
 const execFileAsync = promisify(execFile);
@@ -27,14 +28,14 @@ export interface PythonSignalPayload {
   logged_at?: string;
 }
 
-export function parsePayloadFromStdout(stdout: string): PythonSignalPayload {
+function parseJsonFromStdout(stdout: string): unknown {
   const trimmed = stdout.trim();
   if (!trimmed) {
     throw new Error('weekly_inference returned empty output');
   }
 
   try {
-    return JSON.parse(trimmed) as PythonSignalPayload;
+    return JSON.parse(trimmed);
   } catch {
     const lines = trimmed.split(/\r?\n/).reverse();
     for (const line of lines) {
@@ -43,13 +44,33 @@ export function parsePayloadFromStdout(stdout: string): PythonSignalPayload {
         continue;
       }
       try {
-        return JSON.parse(candidate) as PythonSignalPayload;
+        return JSON.parse(candidate);
       } catch {
         continue;
       }
     }
     throw new Error('Unable to parse weekly_inference JSON payload');
   }
+}
+
+export function parsePayloadFromStdout(stdout: string): PythonSignalPayload {
+  const parsed = parseJsonFromStdout(stdout);
+  if (!parsed || typeof parsed !== 'object' || !('as_of_date' in parsed)) {
+    throw new Error('Unexpected latest signal payload shape from weekly_inference');
+  }
+  return parsed as PythonSignalPayload;
+}
+
+export function parseHistoryPayloadFromStdout(stdout: string): PythonSignalPayload[] {
+  const parsed = parseJsonFromStdout(stdout);
+  if (!parsed || typeof parsed !== 'object' || !('history' in parsed)) {
+    throw new Error('Unexpected historical payload shape from weekly_inference');
+  }
+  const history = (parsed as { history?: unknown }).history;
+  if (!Array.isArray(history)) {
+    throw new Error('Historical payload missing history array');
+  }
+  return history as PythonSignalPayload[];
 }
 
 function resolvePythonCommands(repoRoot: string): string[] {
@@ -85,7 +106,8 @@ function buildSignalId(payload: PythonSignalPayload, salt = ''): string {
 
 function payloadToSignal(payload: PythonSignalPayload, salt = ''): Signal {
   const classification = classifySignal(payload.probability_buy, payload.threshold);
-  const payloadObjective = payload.objective === 'f1' ? 'f1' : 'return';
+  const payloadObjective =
+    payload.objective === 'accuracy' ? 'accuracy' : payload.objective === 'f1' ? 'f1' : 'return';
 
   return {
     id: buildSignalId(payload, salt),
@@ -120,7 +142,7 @@ function fallbackSignal(): Signal {
     probBuy,
     probNoBuy: 1 - probBuy,
     threshold,
-    objective: 'return',
+    objective: 'accuracy',
     modelVersion: 'best_model_weekly_binary.pth',
     confidenceBand: classification.confidenceBand,
     dataStatus: 'stale',
@@ -156,7 +178,48 @@ async function runPythonInference(objective: Objective, extraArgs: string[] = []
   return payload;
 }
 
-export async function getLatestSignal(objective: Objective = 'return'): Promise<Signal> {
+async function runPythonInferenceHistory(objective: Objective, limit: number): Promise<PythonSignalPayload[]> {
+  const repoRoot = getRepoRoot();
+  const scriptPath = path.resolve(repoRoot, 'weekly_inference.py');
+  const pythonCommands = resolvePythonCommands(repoRoot);
+
+  let payload: PythonSignalPayload[] | null = null;
+  let lastError: unknown;
+
+  for (const command of pythonCommands) {
+    try {
+      const { stdout } = await execFileAsync(
+        command,
+        [
+          scriptPath,
+          '--objective',
+          objective,
+          '--json',
+          '--no-append-history',
+          '--history-limit',
+          String(limit),
+        ],
+        {
+          cwd: repoRoot,
+          timeout: 120_000,
+          maxBuffer: 2 * 1024 * 1024,
+          env: { ...process.env, NELL_QUIET_DEVICE: '1' },
+        },
+      );
+      payload = parseHistoryPayloadFromStdout(stdout);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!payload) {
+    throw lastError instanceof Error ? lastError : new Error('Unable to invoke weekly historical inference script');
+  }
+  return payload;
+}
+
+export async function getLatestSignal(objective: Objective = 'accuracy'): Promise<Signal> {
   try {
     const payload = await runPythonInference(objective, ['--no-append-history']);
     return payloadToSignal(payload);
@@ -186,7 +249,7 @@ export function parseSignalHistoryCsv(csvContent: string): PythonSignalPayload[]
       as_of_date: record.as_of_date,
       last_close: Number(record.last_close),
       threshold: Number(record.threshold),
-      objective: record.objective === 'f1' ? 'f1' : 'return',
+      objective: record.objective === 'accuracy' ? 'accuracy' : record.objective === 'f1' ? 'f1' : 'return',
       pred_class: Number(record.pred_class) === 1 ? 1 : 0,
       label: Number(record.pred_class) === 1 ? 'BUY' : 'NO_BUY',
       probability_buy: Number(record.probability_buy),
@@ -228,35 +291,60 @@ function dedupeHistoryRows(rows: PythonSignalPayload[]): PythonSignalPayload[] {
   return deduped;
 }
 
-async function loadSignalHistoryFromCsv(limit: number): Promise<Signal[]> {
-  const historyPath = path.resolve(getModelsDir(), 'signal_history_weekly.csv');
-  try {
-    const raw = await fsPromises.readFile(historyPath, 'utf8');
-    const parsed = dedupeHistoryRows(
-      parseSignalHistoryCsv(raw)
-      .filter((row) => row.as_of_date)
-      .sort((a, b) => {
-        const byDate = String(b.as_of_date).localeCompare(String(a.as_of_date));
-        if (byDate !== 0) {
-          return byDate;
-        }
-        return parseSortTimestamp(b) - parseSortTimestamp(a);
-      }),
-    ).slice(0, limit);
+function sortHistoryRows(rows: PythonSignalPayload[]): PythonSignalPayload[] {
+  return rows.sort((a, b) => {
+    const byDate = String(b.as_of_date).localeCompare(String(a.as_of_date));
+    if (byDate !== 0) {
+      return byDate;
+    }
+    return parseSortTimestamp(b) - parseSortTimestamp(a);
+  });
+}
 
-    return parsed.map((payload, index) => payloadToSignal(payload, String(index)));
-  } catch {
-    return [];
+function mergeHistoryRows(primary: PythonSignalPayload[], secondary: PythonSignalPayload[]): PythonSignalPayload[] {
+  const mergedByKey = new Map<string, PythonSignalPayload>();
+
+  for (const row of secondary) {
+    const key = `${row.as_of_date}|${row.objective}`;
+    mergedByKey.set(key, row);
   }
+  for (const row of primary) {
+    const key = `${row.as_of_date}|${row.objective}`;
+    mergedByKey.set(key, row);
+  }
+
+  return sortHistoryRows(Array.from(mergedByKey.values()));
 }
 
 export async function getSignalHistory(limit = 30): Promise<Signal[]> {
-  const historyFromCsv = await loadSignalHistoryFromCsv(limit);
-  if (historyFromCsv.length > 0) {
-    return historyFromCsv;
+  const historyPath = path.resolve(getModelsDir(), 'signal_history_weekly.csv');
+  const csvRows = await fsPromises
+    .readFile(historyPath, 'utf8')
+    .then((raw) => parseSignalHistoryCsv(raw).filter((row) => row.as_of_date))
+    .catch(() => [] as PythonSignalPayload[]);
+
+  if (csvRows.length >= limit) {
+    return dedupeHistoryRows(sortHistoryRows(csvRows))
+      .slice(0, limit)
+      .map((payload, index) => payloadToSignal(payload, String(index)));
   }
 
-  const latest = await getLatestSignal('return');
+  try {
+    const inferredRows = await runPythonInferenceHistory('accuracy', Math.max(limit, 52));
+    const mergedRows = dedupeHistoryRows(mergeHistoryRows(csvRows, inferredRows)).slice(0, limit);
+    if (mergedRows.length > 0) {
+      return mergedRows.map((payload, index) => payloadToSignal(payload, String(index)));
+    }
+  } catch (error) {
+    if (csvRows.length > 0) {
+      return dedupeHistoryRows(sortHistoryRows(csvRows))
+        .slice(0, limit)
+        .map((payload, index) => payloadToSignal(payload, String(index)));
+    }
+    console.error('Failed to build real historical signals from Python inference:', error);
+  }
+
+  const latest = await getLatestSignal('accuracy');
   const history: Signal[] = [];
 
   for (let i = 0; i < limit; i += 1) {
@@ -282,44 +370,52 @@ export async function getSignalHistory(limit = 30): Promise<Signal[]> {
   return history;
 }
 
-export async function refreshLatestSignal(objective: Objective = 'return'): Promise<Signal> {
+export async function refreshLatestSignal(objective: Objective = 'accuracy'): Promise<Signal> {
   const payload = await runPythonInference(objective, ['--refresh-openbb', '--refresh-mode', 'live']);
   return payloadToSignal(payload);
 }
 
 export async function getSignalExplanation(signalId: string): Promise<SignalExplanation> {
-  const latest = await getLatestSignal('return');
+  const [latest, openbbOverview] = await Promise.all([getLatestSignal('accuracy'), getOpenbbOverview()]);
 
   return {
     signalId,
     confidenceBand: latest.confidenceBand,
     regimeTag: latest.probBuy >= 0.6 ? 'RiskOn' : latest.probBuy <= 0.4 ? 'RiskOff' : 'Neutral',
     thesisSummary:
-      'Signal reflects a market-regime blend of Hang Seng momentum, volatility pressure, rates drift, and HK breadth internals.',
+      'Signal is trained on the primary professor dataset. OpenBB is used as live market context for interpretation and monitoring.',
     keyDrivers: [
       {
-        name: 'HSI 20D Regime',
+        name: 'Recent HSI direction',
         contribution: 0.24,
         direction: latest.probBuy > 0.5 ? 'up' : 'down',
-        narrative: 'Medium-horizon Hang Seng trend is the primary directional anchor in the current snapshot.',
+        narrative: 'Short-term Hang Seng direction in recent periods is the strongest influence in the current output.',
       },
       {
-        name: 'Volatility Pressure (VIX)',
+        name: 'Sentiment trend',
         contribution: -0.19,
-        direction: 'down',
-        narrative: 'Rising volatility regime reduces conviction and compresses upside probability.',
+        direction: latest.probBuy > 0.5 ? 'up' : 'down',
+        narrative: 'Smoothed sentiment from the primary dataset either supports or weakens the BUY probability.',
       },
       {
-        name: 'HK Breadth Composite',
+        name: 'Volatility pressure',
         contribution: 0.13,
-        direction: latest.probBuy > 0.5 ? 'up' : 'down',
-        narrative: 'Constituent breadth quality supports or weakens index-level moves in the model state.',
+        direction: latest.probBuy > 0.5 ? 'down' : 'up',
+        narrative: 'When volatility rises, confidence in directional upside usually drops.',
       },
     ],
     invalidationTriggers: [
-      'Probability(BUY) falls below 0.40 for two consecutive refreshes.',
-      'Walk-forward rolling F1 drops below 0.42 across two windows.',
-      'HSI volatility regime breaks above 2.5x trailing median.',
+      'Probability(BUY) falls below 0.45 for two consecutive runs.',
+      'Walk-forward accuracy remains below 0.55 for two refresh cycles.',
+      'Data freshness status becomes stale for more than one week.',
     ],
+    marketContext: {
+      trainingMode: 'Primary dataset only (OpenBB excluded from training features)',
+      openbbProvider: openbbOverview.source.provider,
+      openbbStatus: openbbOverview.source.status,
+      latestMarketDate: openbbOverview.source.latestMarketDate,
+      lastRefreshAt: openbbOverview.source.lastRefreshAt,
+      note: 'OpenBB currently supports explainability and data-health context only.',
+    },
   };
 }

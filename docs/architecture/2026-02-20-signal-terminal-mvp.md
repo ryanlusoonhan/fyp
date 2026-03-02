@@ -1,8 +1,8 @@
-# Nell Signal Terminal MVP Architecture (2026-02-20)
+# Nell Signal Terminal MVP Architecture (Internal Mode)
 
 ## Scope
 
-This document covers the full-stack MVP architecture for turning the weekly model workflow into a productized terminal.
+This document covers the full-stack MVP architecture for turning the weekly model workflow into an internal analytical terminal.
 
 ## High-Level Topology
 
@@ -12,36 +12,24 @@ This document covers the full-stack MVP architecture for turning the weekly mode
    - `weekly_inference.py` emits latest signal and supports machine-readable `--json`.
 
 2. **Next.js product layer (`web/`)**  
-   - App Router UI for landing, pricing, and terminal pages (`/dashboard`, `/signals`, `/walk-forward`, `/scenario-lab`, `/explainability`).  
-   - API routes for public data, pro data, billing, and internal ingest.
+   - App Router UI for landing and terminal pages (`/dashboard`, `/signals`, `/walk-forward`, `/scenario-lab`, `/explainability`, `/openbb`).  
+   - API routes for analytics data and internal ingest.
 
-3. **Persistence + billing layer (optional in local, ready in prod)**  
+3. **Persistence layer (optional in local, ready in prod)**  
    - Supabase for user profiles/subscriptions/signal snapshots.  
-   - Stripe for subscription checkout and billing portal.
 
 ## Data Flow
 
 1. Model generates latest weekly prediction.
 2. Next server reads signal by invoking Python (`weekly_inference.py --json`).
 3. Walk-forward CSV is parsed into chart-friendly structures.
-4. API layer gates premium endpoints by plan entitlement.
+4. API layer serves all analytical modules in internal mode (no feature-tier gating).
 5. Internal ingest endpoint can persist signal snapshots into Supabase.
 
-## Plan & Entitlement Strategy
+## Access Strategy
 
-- Local/dev: plan can be simulated via `x-plan-id` header or bearer token pattern (`plan:pro`, `demo_elite`).
-- Production: bearer token can be resolved through Supabase auth, with plan sourced from `subscriptions`/`profiles`.
-- Feature gates are centralized in `web/src/lib/domain/entitlements.ts`.
-
-## Billing Strategy
-
-- Checkout API supports live Stripe sessions when env vars are present:
-  - `STRIPE_SECRET_KEY`
-  - `STRIPE_PRICE_PRO_MONTHLY`
-  - `STRIPE_PRICE_PRO_ANNUAL`
-  - `STRIPE_PRICE_ELITE_MONTHLY`
-  - `STRIPE_PRICE_ELITE_ANNUAL`
-- If absent, checkout safely returns a setup-required response.
+- Internal mode: all analytics endpoints are accessible without pricing-tier checks.
+- Optional bearer auth can still be used to resolve a Supabase user id for audit metadata.
 
 ## Core Trade-Offs
 
@@ -51,11 +39,11 @@ This document covers the full-stack MVP architecture for turning the weekly mode
 - **Cost**: less scalable than a dedicated model microservice.
 - **Future**: move to queue/worker inference service if traffic rises.
 
-### B) Header-based plan simulation in MVP
-- **Decision**: keep plan simulation fallback for local iteration.
-- **Why**: allows product/UI development before full auth rollout.
-- **Cost**: not sufficient for production security.
-- **Future**: enforce Supabase JWT-only plan resolution in production mode.
+### B) Internal-mode API surface
+- **Decision**: remove pricing-tier gating and keep analytics routes universally available.
+- **Why**: deployment is for internal academic use, not SaaS monetization.
+- **Cost**: no fine-grained feature restrictions.
+- **Future**: if needed, add role-based access focused on identity/security rather than pricing.
 
 ### C) CSV-backed walk-forward repository
 - **Decision**: source walk-forward from generated CSV with fallback dataset.
@@ -72,7 +60,6 @@ This document covers the full-stack MVP architecture for turning the weekly mode
 
 ## Next Milestones
 
-1. Replace simulated plan headers with strict Supabase-authenticated entitlement resolution.
-2. Add webhook handling for Stripe subscription lifecycle synchronization.
-3. Persist and version walk-forward windows in database for richer analytics.
-4. Add alert delivery channels (email/Telegram) behind Pro/Elite entitlements.
+1. Persist and version walk-forward windows in database for richer analytics.
+2. Add alert delivery channels (email/Telegram) for internal operations.
+3. Add stronger role-based access controls only if required by the supervisor team.

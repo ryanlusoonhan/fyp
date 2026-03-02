@@ -11,24 +11,24 @@ import { toPercent, toSignedPercent } from '@/lib/utils';
 const MODULES = [
   {
     title: 'Signal Engine',
-    detail: 'Weekly BUY/NO_BUY with threshold and confidence.',
+    detail: 'Primary-dataset model producing weekly BUY/NO_BUY with threshold and confidence.',
     icon: BarChart3,
   },
   {
-    title: 'Explainability',
-    detail: 'Driver-level context and invalidation triggers.',
+    title: 'Interpretation Layer',
+    detail: 'Plain-language drivers, safety checks, and OpenBB context.',
     icon: FileSearch,
   },
   {
     title: 'Validation Layer',
-    detail: 'Walk-forward and scenario stress testing.',
+    detail: 'Walk-forward and threshold testing for reliability checks.',
     icon: ShieldCheck,
   },
 ];
 
 export default async function HomePage() {
   const [signal, performance] = await Promise.all([
-    getLatestSignal('return').catch(() => null),
+    getLatestSignal('accuracy').catch(() => null),
     getPerformanceSummary().catch(() => null),
   ]);
 
@@ -40,15 +40,13 @@ export default async function HomePage() {
             <div>
               <p className="font-display text-2xl">Stock Prediction Interface</p>
               <p className="mt-2 max-w-2xl text-sm text-muted">
-                Professional dashboard for weekly signal output, confidence context, and validation analytics.
+                Internal HSI analytics dashboard with plain-language signal interpretation, validation tracking, and
+                OpenBB data monitoring.
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button asChild size="sm" variant="secondary">
-                <Link href="/pricing">Pricing</Link>
-              </Button>
               <Button asChild size="sm">
-                <Link href="/dashboard">Open interface</Link>
+                <Link href="/dashboard">Open dashboard</Link>
               </Button>
             </div>
           </div>
@@ -81,7 +79,7 @@ export default async function HomePage() {
             <CardDescription className="mt-2">Model and pipeline context for this session.</CardDescription>
             <div className="mt-4 space-y-2 font-mono text-xs text-muted">
               <p>market=HSI</p>
-              <p>objective=return</p>
+              <p>objective=accuracy</p>
               <p>cadence=weekly signal / daily refresh</p>
               <p>model={signal?.modelVersion ?? 'best_model_weekly_binary.pth'}</p>
             </div>
@@ -113,7 +111,7 @@ export default async function HomePage() {
 
         <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
           <Card className="reveal-up">
-            <CardTitle>Core modules</CardTitle>
+            <CardTitle>What each module does</CardTitle>
             <div className="mt-4 space-y-3">
               {MODULES.map((module) => {
                 const Icon = module.icon;
@@ -131,18 +129,18 @@ export default async function HomePage() {
           </Card>
 
           <Card className="reveal-up">
-            <CardTitle>Primary actions</CardTitle>
+            <CardTitle>Recommended flow</CardTitle>
             <div className="mt-4 space-y-2">
               <Link href="/dashboard" className="flex items-center justify-between border border-border bg-panel-strong p-3 text-sm hover:border-accent/40">
-                Open dashboard
+                1) Review latest signal
                 <ArrowRight className="h-4 w-4 text-muted" />
               </Link>
               <Link href="/signals" className="flex items-center justify-between border border-border bg-panel-strong p-3 text-sm hover:border-accent/40">
-                View signal history
+                2) Compare with prior weeks
                 <ArrowRight className="h-4 w-4 text-muted" />
               </Link>
               <Link href="/walk-forward" className="flex items-center justify-between border border-border bg-panel-strong p-3 text-sm hover:border-accent/40">
-                Check walk-forward
+                3) Validate model health
                 <ArrowRight className="h-4 w-4 text-muted" />
               </Link>
             </div>
