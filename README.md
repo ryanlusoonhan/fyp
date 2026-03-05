@@ -2,6 +2,12 @@
 
 Simple Docker-first run instructions.
 
+## Project structure guide
+
+For a concise codebase map, read:
+
+- `PROJECT_GUIDE.md`
+
 ## Prerequisites
 
 - Docker Desktop installed
